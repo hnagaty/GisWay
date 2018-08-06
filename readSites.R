@@ -2,6 +2,17 @@ library(readr)
 library(dplyr)
 
 
+cellMap <- read_delim("sectorMapping.txt", "\t",
+    escape_double = FALSE, na = "NA",
+    col_types = cols(Carrier = col_factor(levels = c("1", "2", "3")),
+                     Sector = col_factor(levels = c("S1", "S2", "S3", "S4", "S5"))),
+    trim_ws = TRUE)
+
+cellMap <- read.delim("~/R/vodaGIS/sectorMapping.txt")
+cellMap$Carrier<-as.factor(cellMap$Carrier)
+cellMap$rownames<-cellMap$Suffix
+
+
 atollDb <- read_delim("~/Dropbox/Voda/GISWay/sitesData/atollDb.txt","\t",
                       escape_double = FALSE, trim_ws = TRUE, skip = 1,
                       col_names = c("Site","Lat","Long"),
@@ -33,7 +44,6 @@ getPhySite <- function(cellname) {
       PhySite <- "Invalid"
       Type <- "Invalid"
     }
-    
   } else {
     chrLoc <- regexpr("[0-9]",cellname)[1]
     chrPrefix <- substring(cellname,1,chrLoc-1)
@@ -64,12 +74,25 @@ getPhySite <- function(cellname) {
       }
     }     
   }
-  return(c(PhySite,Type))
+  if (PhySite!="Invalid") {
+    {
+      a
+    } else {
+      Sector="Invalid"
+    }
+  }
+  return(c(PhySite,Type,Sector))
 }
 
 cellDb <- cellDb %>%
   rowwise %>%
-  mutate(Site=getPhySite(CellName)[1],Type=getPhySite(CellName)[2])
+  mutate(Site=getPhySite(CellName)[1],Type=getPhySite(CellName)[2]) %>%
+  filter(Site!="Invalid") %>%
+  ungroup()
 
-invalid <- cellDb %>%
-  filter(Site=="Invalid")
+siteDb <- cellDb %>%
+  group_by(Site) %>%
+  summarise(noCells=n())
+
+allDb <- atollDb %>%
+  inner_join(siteDb)
