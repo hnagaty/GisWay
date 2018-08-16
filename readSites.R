@@ -2,6 +2,10 @@ library(readr)
 library(dplyr)
 library(sp)
 library(tidyr)
+library(rgeos)
+library(rgdal)
+library(spdplyr)
+
 
 
 cellMap <- read.delim("~/R/vodaGIS/sectorMapping.txt")
@@ -96,3 +100,12 @@ write_csv(sites,"~/Dropbox/Voda/GISWay/sitesData/vodaSites.txt")
 
 coordinates(sites) <- c("Long","Lat")
 proj4string(sites) <- CRS("+init=epsg:4326")
+utmSites <-spTransform(sites, CRS("+init=epsg:32636"))
+
+vodaRegions <- readOGR("/home/hnagaty/Dropbox/Voda/GISWay/geoData","Regions")
+vodaRegions <-spTransform(vodaRegions, CRS("+init=epsg:32636"))
+vodaRegions <- vodaRegions %>% select(REGION) %>% rename(Region=REGION)
+
+sdg <- over(utmSites,vodaRegions)
+sd <- sites@data
+sdn <- bind_cols(sd,sdg)
