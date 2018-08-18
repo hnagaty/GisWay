@@ -5,21 +5,21 @@ library(tidyr)
 library(rgeos)
 library(rgdal)
 library(spdplyr)
+library(ggplot2)
+library(maptools)
+library(RANN)
+library(raster)
 
+# Some needed variables
+globalPath <- "~/Dropbox/Voda/GISWay/sitesData/"
+localPath <- "~/data/geodata/Siradel_20151217_Country50m/DLU/"
+atollFile <- "atollDb.txt"
+cellFile <- "oneCellDb.txt"
+geoPath <- "/home/hnagaty/Dropbox/Voda/GISWay/geoData"
+egUtmCRS <- CRS("+init=epsg:32636")
+wgs84CRS <- CRS("+init=epsg:4326")
 
-
-cellMap <- read.delim("~/R/vodaGIS/sectorMapping.txt")
-cellMap$Carrier<-as.factor(cellMap$Carrier)
-rownames(cellMap)<-cellMap$Suffix
-
-atollDb <- read_delim("~/Dropbox/Voda/GISWay/sitesData/atollDb.txt","\t",
-                      escape_double = FALSE, trim_ws = TRUE, skip = 1,
-                      col_names = c("Site","Lat","Long"),
-                      col_types = "cdd")
-
-cellDb <- read_delim("~/Dropbox/Voda/GISWay/sitesData/oneCellDb.txt","\t",
-                     escape_double = FALSE, trim_ws = TRUE,col_types = "cc")
-
+# Function to deduce site properties from the cell name
 getPhySite <- function(cellname) {
   if (substr(cellname,1,1)=="L") {
     s=strsplit(cellname,"_",fixed=TRUE)
@@ -74,13 +74,28 @@ getPhySite <- function(cellname) {
     }     
   }
   if (PhySite!="Invalid") {
-      a <- substr(cellname,nchar(cellname),nchar(cellname))
-      Sector <- as.character(cellMap[a,2])
-    } else {
-      Sector="Invalid"
-    }
+    a <- substr(cellname,nchar(cellname),nchar(cellname))
+    Sector <- as.character(cellMap[a,2])
+  } else {
+    Sector="Invalid"
+  }
   return(paste(PhySite,Type,Sector,sep=","))
 }
+
+
+cellMap <- read.delim("sectorMapping.txt")
+cellMap$Carrier<-as.factor(cellMap$Carrier)
+rownames(cellMap)<-cellMap$Suffix
+
+atollDb <- read_delim(paste0(globalPath,atollFile),"\t",
+                      escape_double = FALSE, trim_ws = TRUE, skip = 1,
+                      col_names = c("Site","Lat","Long"),
+                      col_types = "cdd")
+
+
+cellDb <- read_delim(paste0(globalPath,cellFile),"\t",
+                     escape_double = FALSE, trim_ws = TRUE,col_types = "cc")
+
 
 cellDb <- cellDb %>%
   rowwise %>%
@@ -90,22 +105,56 @@ cellDb <- cellDb %>%
   ungroup()
 
 siteDb <- cellDb %>%
-  group_by(Site) %>%
+  group_by(Site,Vendor) %>%
   summarise(noCells=n(),noSecs=n_distinct(Sector))
 
 sites <- atollDb %>%
   inner_join(siteDb)
 
-write_csv(sites,"~/Dropbox/Voda/GISWay/sitesData/vodaSites.txt")
+#write_csv(sites,"~/Dropbox/Voda/GISWay/sitesData/vodaSites.txt")
 
 coordinates(sites) <- c("Long","Lat")
-proj4string(sites) <- CRS("+init=epsg:4326")
-utmSites <-spTransform(sites, CRS("+init=epsg:32636"))
+proj4string(sites) <- wgs84CRS
+utmSites <-spTransform(sites, egUtmCRS)
 
-vodaRegions <- readOGR("/home/hnagaty/Dropbox/Voda/GISWay/geoData","Regions")
-vodaRegions <-spTransform(vodaRegions, CRS("+init=epsg:32636"))
-vodaRegions <- vodaRegions %>% select(REGION) %>% rename(Region=REGION)
+# Read voda regions
+vodaRegions <- readOGR(geoPath,"Regions")
+vodaRegions <-spTransform(vodaRegions, egUtmCRS)
+vodaRegions <- vodaRegions %>%
+  dplyr::select(REGION) %>%
+  rename(Region=REGION)
+vodaSubRegions <- readOGR(geoPath,"SubRegions")
+vodaSubRegions <-spTransform(vodaSubRegions, egUtmCRS)
+vodaSubRegions <- vodaSubRegions %>%
+  dplyr::select(REGION,SUB_REGION) %>% 
+  rename(Region=REGION,SubRegion=SUB_REGION)
 
-sdg <- over(utmSites,vodaRegions)
-sd <- sites@data
-sdn <- bind_cols(sd,sdg)
+# Read the administrative divisions
+gSheakhat <- readOGR(geoPath,"SheakhatCleaned")
+gSheakhat <-spTransform(gSheakhat, egUtmCRS)
+gSheakhat <- gSheakhat %>%
+  dplyr::select(SHYK_ANAME,SHYK_ENAME,QISM_ENAME,GOV_ENAME) %>%
+  rename(SheakhaAr=SHYK_ANAME,SheakhaEn=SHYK_ENAME,QismEn=QISM_ENAME,GovernorateEn=GOV_ENAME)
+
+# Read the geodata
+siradel <- raster(paste0(localPath,"EGYPT_2_DLU_50m.bil"),crs="+init=epsg:32636")
+siradelLegend <- read_delim(paste0(localPath,"EGYPT_2_DLU_50m.mnu"),
+                            " ",col_names = c("Code","Clutter"))
+
+utmSites <- raster::extract(siradel,utmSites,sp=TRUE)
+utmSites <- utmSites %>% rename(Clutter=EGYPT_2_DLU_50m)
+utmSites@data$Clutter <- as.factor(utmSites@data$Clutter)
+clutterNames <- siradelLegend$Clutter[siradelLegend$Clutter!="High_Dense_Vegetation"]
+levels(utmSites@data$Clutter) <- clutterNames
+
+
+# Spatial join Method #1
+joinedSitesA <- over(utmSites,vodaSubRegions)
+joinedSitesB <- over(utmSites,gSheakhat)
+sitesDf <- bind_cols(utmSites@data,joinedSitesA,joinedSitesB)
+
+# Spatial join Method #2
+joinedSitesA <- over(utmSites,vodaSubRegions)
+joinedSitesB <- over(utmSites,gSheakhat)
+sitesSp <- spCbind(utmSites,joinedSitesA,joinedSitesB)
+
