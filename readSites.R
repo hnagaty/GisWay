@@ -12,6 +12,7 @@ library(raster)
 
 # Some needed variables
 globalPath <- "~/Dropbox/Voda/GISWay/sitesData/"
+exportPath <- "~/Dropbox/Voda/GISWay/"
 localPath <- "~/data/geodata/Siradel_20151217_Country50m/DLU/"
 atollFile <- "atollDb.txt"
 cellFile <- "oneCellDb.txt"
@@ -95,7 +96,7 @@ atollDb <- read_delim(paste0(globalPath,atollFile),"\t",
 
 cellDb <- read_delim(paste0(globalPath,cellFile),"\t",
                      escape_double = FALSE, trim_ws = TRUE,col_types = "cc")
-
+cellDb$Vendor <- as.factor(cellDb$Vendor)
 
 cellDb <- cellDb %>%
   rowwise %>%
@@ -108,10 +109,9 @@ siteDb <- cellDb %>%
   group_by(Site,Vendor) %>%
   summarise(noCells=n(),noSecs=n_distinct(Sector))
 
+# join sites that exist in both atollDb and in CellDb
 sites <- atollDb %>%
   inner_join(siteDb)
-
-#write_csv(sites,"~/Dropbox/Voda/GISWay/sitesData/vodaSites.txt")
 
 coordinates(sites) <- c("Long","Lat")
 proj4string(sites) <- wgs84CRS
@@ -148,13 +148,16 @@ clutterNames <- siradelLegend$Clutter[siradelLegend$Clutter!="High_Dense_Vegetat
 levels(utmSites@data$Clutter) <- clutterNames
 
 
-# Spatial join Method #1
+# Spatial join
 joinedSitesA <- over(utmSites,vodaSubRegions)
 joinedSitesB <- over(utmSites,gSheakhat)
+# Method #1
+# the output is a data.frame
 sitesDf <- bind_cols(utmSites@data,joinedSitesA,joinedSitesB)
-
-# Spatial join Method #2
-joinedSitesA <- over(utmSites,vodaSubRegions)
-joinedSitesB <- over(utmSites,gSheakhat)
-sitesSp <- spCbind(utmSites,joinedSitesA,joinedSitesB)
+write_csv(sitesDf,paste0(exportPath,"vodaSites.txt"))
+# Method #2
+# the output is an sp object
+sitesSp <- spCbind(utmSites,joinedSitesA)
+sitesSp <- spCbind(sitesSp,joinedSitesB)
+sitesDf <- bind_cols(sitesSp@data,as.data.frame(sitesSp@coords))
 
