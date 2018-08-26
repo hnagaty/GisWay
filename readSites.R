@@ -161,3 +161,22 @@ sitesSp <- spCbind(utmSites,joinedSitesA)
 sitesSp <- spCbind(sitesSp,joinedSitesB)
 sitesDf <- bind_cols(sitesSp@data,as.data.frame(sitesSp@coords))
 
+sitesCord <- sitesDf %>%
+  select(Long,Lat)
+
+sitesNames <- sitesDf$Site
+
+k=6
+noSites <- NROW(sitesName)
+sitesDistances <- distances(sitesDf,id_variable = "Site",dist_variables = c("Long","Lat"))
+nearestSitesIdx <- nearest_neighbor_search(sitesDistances,k=k)
+#nSite <- nearestSite[,5000]
+nearestSitesNames <- matrix(sitesNames[nearestSitesIdx],nrow=k,ncol=noSites)
+
+sdf <- nn2(sitesCord,k=k)
+
+getSiteDistance <- function() {
+  n=1
+  distance <- distance_columns(sitesDistances,n,nearestSiteIdx[2:6,n])
+  return(distance)
+}
