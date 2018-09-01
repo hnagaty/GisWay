@@ -13,7 +13,7 @@ library(raster)
 
 # Some needed variables
 globalPath <- "~/Dropbox/Voda/GISWay/sitesData/"
-exportPath <- "~/Dropbox/Voda/GISWay/"
+exportPath <- "~/Dropbox/Voda/GISWay/export/"
 localPath <- "~/data/geodata/Siradel_20151217_Country50m/DLU/"
 atollFile <- "atollDb.txt"
 cellFile <- "oneCellDb.txt"
@@ -116,9 +116,10 @@ siteDb <- cellDb %>%
 sites <- atollDb %>%
   inner_join(siteDb)
 
+# Convert sites into sp object
 coordinates(sites) <- c("Long","Lat")
 proj4string(sites) <- wgs84CRS
-utmSites <-spTransform(sites, egUtmCRS)
+utmSites <-spTransform(sites, egUtmCRS) # transformation is needed to convert units to meters
 
 # Read voda regions
 vodaRegions <- readOGR(geoPath,"Regions")
@@ -144,6 +145,7 @@ siradel <- raster(paste0(localPath,"EGYPT_2_DLU_50m.bil"),crs="+init=epsg:32636"
 siradelLegend <- read_delim(paste0(localPath,"EGYPT_2_DLU_50m.mnu"),
                             " ",col_names = c("Code","Clutter"))
 
+# extract clutter type of each site
 utmSites <- raster::extract(siradel,utmSites,sp=TRUE)
 utmSites <- utmSites %>% rename(Clutter=EGYPT_2_DLU_50m)
 utmSites@data$Clutter <- as.factor(utmSites@data$Clutter)
@@ -164,11 +166,10 @@ sitesSp <- spCbind(utmSites,joinedSitesA)
 sitesSp <- spCbind(sitesSp,joinedSitesB)
 sitesDf <- bind_cols(sitesSp@data,as.data.frame(sitesSp@coords))
 
+# Next lines are for clustering the sites
 sitesCord <- sitesDf %>%
   select(Long,Lat)
-
 sitesNames <- sitesDf$Site
-
 k=6
 noSites <- NROW(sitesNames)
 # not used library
@@ -176,39 +177,63 @@ noSites <- NROW(sitesNames)
 #nearestSitesIdx <- nearest_neighbor_search(sitesDistances,k=k)
 #nearestSitesNames <- matrix(sitesNames[nearestSitesIdx],nrow=k,ncol=noSites)
 
+# K nearest sites
 distMatrix <- nn2(sitesCord,k=k)
 sitesDf$minDist <- apply(distMatrix[["nn.dists"]][,2:k],1,min)
 sitesDf$maxDist <- apply(distMatrix[["nn.dists"]][,2:k],1,max)
 sitesDf$meanDist <- apply(distMatrix[["nn.dists"]][,2:k],1,mean)
 sitesDf$sdDist <- apply(distMatrix[["nn.dists"]][,2:k],1,sd)
+sitesDf <- sitesDf %>% mutate(normSd=sdDist/meanDist)
 
 ggplot(data=sitesDf,aes(x=Long,y=Lat,col=Vendor)) + geom_point()
-
+qplot(Long,Lat,data=sitesDf,colour=Region)
 
 # Clustering
-sitesCl <- sitesDf %>% dplyr::select(Clutter,meanDist,sdDist)
+# I still need to try to do clutering based on underlying clutter class
+#sitesCl <- sitesDf %>% dplyr::select(Clutter,meanDist,sdDist)
 
+#write_csv(sites,"vodaSitesDf.txt")
 
-# Ward Hierarchical Clustering
-d <- dist(sitesCl, method = "euclidean") # distance matrix
-fit <- hclust(d, method="complete")
-plot(fit) # display dendogram
-groups <- cutree(fit, k=5) # cut tree into 5 clusters
-# draw dendogram with red borders around the 5 clusters
-#rect.hclust(fit, k=5, border="red")
-sitesDf$Cluster <- as.factor(groups)
-ggplot(sitesDf,aes(x=Long,y=Lat,col=Cluster)) + geom_point()
+# Clustering
+sitesCl <- sitesDf %>%
+  dplyr::select(meanDist,normSd)
 
-# kmeans
-# Determine number of clusters
-wss <- (nrow(mydata)-1)*sum(apply(mydata,2,var))
-for (i in 2:15) wss[i] <- sum(kmeans(mydata,
-                                     centers=i)$withinss)
-plot(1:15, wss, type="b", xlab="Number of Clusters",
-     ylab="Within groups sum of squares")
-# K-Means Cluster Analysis
-fit <- kmeans(mydata, 2) # 5 cluster solution
-# get cluster means
-aggregate(mydata,by=list(fit$cluster),FUN=mean)
-# append cluster assignment
-mydata <- data.frame(mydata, fit$cluster)
+# Hierarchical Clustering
+hclust.dist <- dist(sitesCl, method = "euclidean") # distance matrix
+hclust.fit <- hclust(hclust.dist, method="ward.D2")
+# For loop for different k values
+sites.clusters <- data.frame(Site=character(),
+                             Long=double(),
+                             Lat=double(),
+                             Cluster=integer(),
+                             kValue=integer(),
+                             stringsAsFactors=FALSE)
+sitesLoc <- dplyr::select(sitesDf,Site,Long,Lat)
+for (k in 2:7) {
+  clusters <- cutree(hclust.fit, k=k)
+  sitesLoc$Cluster <- clusters
+  sitesLoc$kValue <- k
+  sites.clusters <- bind_rows(sites.clusters,sitesLoc)
+}
+sites.clusters$kValue <- as.factor(sites.clusters$kValue)
+sites.clusters$Cluster <- as.factor(sites.clusters$Cluster)
+p <- ggplot(data=sites.clusters,aes(x=Long,y=Lat)) +
+  facet_wrap(~kValue) +
+  geom_point()
+p + aes(col=Cluster)
+
+for (k in 2:7) {
+  sites.export <- dplyr::filter(sites.clusters,kValue==k)
+  write_csv(sites.export,paste0("clusteredSitesK",k,".txt"))
+}
+write_csv(sites.clusters,"clusteredSitesAllK.txt")
+
+# Using k=5
+sites.5clusters <- dplyr::filter(sites.clusters,kValue==5)
+levels(sites.5clusters$Cluster) <- c("Urban","Rural","Road","Isolated","FarIsolated","NA","NA")
+sites.5clusters <- sites.5clusters %>%
+  select(Site,Cluster)
+# Merge with the sitesDf
+sitesDf <- inner_join(sitesDf,sites.5clusters)
+write_csv(sitesDf,paste0(exportPath,"vodaSites.txt"))
+table(sitesDf$Region,sitesDf$Cluster)
