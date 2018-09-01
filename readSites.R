@@ -9,6 +9,7 @@ library(ggplot2)
 library(maptools)
 library(RANN)
 library(raster)
+#library(distances)
 
 # Some needed variables
 globalPath <- "~/Dropbox/Voda/GISWay/sitesData/"
@@ -92,7 +93,9 @@ atollDb <- read_delim(paste0(globalPath,atollFile),"\t",
                       escape_double = FALSE, trim_ws = TRUE, skip = 1,
                       col_names = c("Site","Lat","Long"),
                       col_types = "cdd")
-
+# Remove duplicate sites
+atollDb = atollDb[order(atollDb$Site),]
+atollDb = atollDb[!duplicated(atollDb$Site),]
 
 cellDb <- read_delim(paste0(globalPath,cellFile),"\t",
                      escape_double = FALSE, trim_ws = TRUE,col_types = "cc")
@@ -153,8 +156,8 @@ joinedSitesA <- over(utmSites,vodaSubRegions)
 joinedSitesB <- over(utmSites,gSheakhat)
 # Method #1
 # the output is a data.frame
-sitesDf <- bind_cols(utmSites@data,joinedSitesA,joinedSitesB)
-write_csv(sitesDf,paste0(exportPath,"vodaSites.txt"))
+#sitesDf <- bind_cols(utmSites@data,joinedSitesA,joinedSitesB)
+#write_csv(sitesDf,paste0(exportPath,"vodaSites.txt"))
 # Method #2
 # the output is an sp object
 sitesSp <- spCbind(utmSites,joinedSitesA)
@@ -167,16 +170,45 @@ sitesCord <- sitesDf %>%
 sitesNames <- sitesDf$Site
 
 k=6
-noSites <- NROW(sitesName)
-sitesDistances <- distances(sitesDf,id_variable = "Site",dist_variables = c("Long","Lat"))
-nearestSitesIdx <- nearest_neighbor_search(sitesDistances,k=k)
-#nSite <- nearestSite[,5000]
-nearestSitesNames <- matrix(sitesNames[nearestSitesIdx],nrow=k,ncol=noSites)
+noSites <- NROW(sitesNames)
+# not used library
+#sitesDistances <- distances(sitesDf,id_variable = "Site",dist_variables = c("Long","Lat"))
+#nearestSitesIdx <- nearest_neighbor_search(sitesDistances,k=k)
+#nearestSitesNames <- matrix(sitesNames[nearestSitesIdx],nrow=k,ncol=noSites)
 
-sdf <- nn2(sitesCord,k=k)
+distMatrix <- nn2(sitesCord,k=k)
+sitesDf$minDist <- apply(distMatrix[["nn.dists"]][,2:k],1,min)
+sitesDf$maxDist <- apply(distMatrix[["nn.dists"]][,2:k],1,max)
+sitesDf$meanDist <- apply(distMatrix[["nn.dists"]][,2:k],1,mean)
+sitesDf$sdDist <- apply(distMatrix[["nn.dists"]][,2:k],1,sd)
 
-getSiteDistance <- function() {
-  n=1
-  distance <- distance_columns(sitesDistances,n,nearestSiteIdx[2:6,n])
-  return(distance)
-}
+ggplot(data=sitesDf,aes(x=Long,y=Lat,col=Vendor)) + geom_point()
+
+
+# Clustering
+sitesCl <- sitesDf %>% dplyr::select(Clutter,meanDist,sdDist)
+
+
+# Ward Hierarchical Clustering
+d <- dist(sitesCl, method = "euclidean") # distance matrix
+fit <- hclust(d, method="complete")
+plot(fit) # display dendogram
+groups <- cutree(fit, k=5) # cut tree into 5 clusters
+# draw dendogram with red borders around the 5 clusters
+#rect.hclust(fit, k=5, border="red")
+sitesDf$Cluster <- as.factor(groups)
+ggplot(sitesDf,aes(x=Long,y=Lat,col=Cluster)) + geom_point()
+
+# kmeans
+# Determine number of clusters
+wss <- (nrow(mydata)-1)*sum(apply(mydata,2,var))
+for (i in 2:15) wss[i] <- sum(kmeans(mydata,
+                                     centers=i)$withinss)
+plot(1:15, wss, type="b", xlab="Number of Clusters",
+     ylab="Within groups sum of squares")
+# K-Means Cluster Analysis
+fit <- kmeans(mydata, 2) # 5 cluster solution
+# get cluster means
+aggregate(mydata,by=list(fit$cluster),FUN=mean)
+# append cluster assignment
+mydata <- data.frame(mydata, fit$cluster)
