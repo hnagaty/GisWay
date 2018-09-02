@@ -78,11 +78,16 @@ getPhySite <- function(cellname) {
   if (PhySite!="Invalid") {
     a <- substr(cellname,nchar(cellname),nchar(cellname))
     Sector <- as.character(cellMap[a,2])
-  } else {
+	if (Type=="UMTS2100") {Carrier <- paste0("G",as.character(cellMap[a,3]))}
+	else if (Type="UMTS900") {Carrier <- paste0("M",as.character(cellMap[a,3]))}
+	else {Carrier <- "NA"}
+	} else {
     Sector="Invalid"
+	  Carrier="Invalid"
   }
-  return(paste(PhySite,Type,Sector,sep=","))
+  return(paste(PhySite,Type,Sector,Carrier,sep=","))
 }
+
 
 
 cellMap <- read.delim("sectorMapping.txt")
