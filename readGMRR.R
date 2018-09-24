@@ -12,8 +12,9 @@ pasteDir <- function(c) {
 }
   
 
-myPath="D:/Optimisation/~InProgress/201806_GisFramework/ossData/"
-mrrFile=c("Delta01_20180801.msmt","Delta02_20180801.msmt")
+#myPath <- "D:/Optimisation/~InProgress/201806_GisFramework/ossData/"
+myPath <- "/home/hnagaty/Dropbox/Voda/GISWay/ossData/"
+mrrFile <- c("Delta01_20180801.msmt","Delta02_20180801.msmt")
 
 gmrr <- data.frame()
 for (m in mrrFile) {
