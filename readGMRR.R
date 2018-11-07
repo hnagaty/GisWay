@@ -12,52 +12,48 @@ pasteDir <- function(c) {
 }
   
 
-#myPath <- "D:/Optimisation/~InProgress/201806_GisFramework/ossData/"
-myPath <- "/home/hnagaty/Dropbox/Voda/GISWay/ossData/"
-mrrFile <- c("Delta01_20180801.msmt","Delta02_20180801.msmt")
+myPath="d:/data/mrr/2018Sep25/"
+mrrFiles=paste0(mrrConf.df$File,".msmt")
 
 gmrr <- data.frame()
-for (m in mrrFile) {
+for (m in mrrFiles) {
   gmrrtmp <- read_tsv(paste0(myPath,m))
   gmrr <- bind_rows(gmrr,gmrrtmp)
 }
-rm(gmrrtmp,m,mrrFile,myPath)
+rm(gmrrtmp,m,mrrFiles,myPath)
 
 #Remove the FER as it's alawys 0
 gmrr <- gmrr %>%
   select(-starts_with("FER"))
 
-# analysis per cell
-neededcell <- "D39773"
-gMrrCell <- gmrr %>%
+#Combine all instances of a single cell
+gmrr <- gmrr %>%
+  group_by(CellName,ChannelGroup,SubCellType,Band) %>%
+  summarise_all(sum) %>%
+  ungroup()
+
+gmrrFiltered <- gmrr %>%
   separate(CellName,into=c("BSC","Cell"),sep="/") %>%
-  filter (Cell == neededcell) %>%
-  select(1:7,contains("RXLEV")) %>%
-  gather("Measure","Value",8:135) %>%
-  separate(Measure,into=c("Measure","Bin","c","d"),sep="[\\)\\(,]",convert=TRUE) %>%
-  select(-c,-d) %>%
-  separate(Measure,into=c("kpi","dir"),sep=5) %>%
-  mutate(Bin=Bin-110)
+  filter(NoReportsPassedFilter>1000) %>%
+  select(-(NoFERULPassedFilter:NoFERULDLUnfiltered)) %>%
+  filter(complete.cases(.))
+nCols <- ncol(gmrrFiltered)
+gmrrRatio <- gmrrFiltered %>%
+  mutate_at(11:nCols,funs(. / NoReportsPassedFilter))
 
-ggplot(gMrrCell,aes(x=Bin,y=Value,fill=dir)) + geom_col(position = "dodge")
-
-nCols <- ncol(gmrr)
-gmrrFilter <- gmrr %>%
-  filter(NoReportsPassedFilter>1000)
-
-gmmrRatio <- gmrrFilter %>%
-  mutate_at(16:nCols,funs(. / NoReportsPassedFilter))
-
-gmrrSmall <- gmrrFilter %>%
+# I don't remember what is the below line for
+gmrrSmall <- gmrrFiltered %>%
   select(CellName:NoFERULDLUnfiltered) %>%
   separate(CellName,into=c("BSC","Cell"),sep="/")  
 
-gmrrTidy <-  gmrr %>%
-  filter(NoReportsPassedFilter>1000) %>%
-  mutate_at(16:nCols,funs(. / NoReportsPassedFilter)) %>%
-  separate(CellName,into=c("BSC","Cell"),sep="/") %>%
-  filter(Cell==neededcell) %>%
-  gather("Measure","Value",17:nCols) %>%
+# Make a tidy version (from cols to rows) for the MRR
+# For use in plotting
+# It's okay for the warning messages below
+# Too slow if not filtered by cellname
+neededCell <- '47871'
+gmrrTidy <-  gmrrRatio %>%
+  filter(Cell==neededCell) %>%
+  gather("Measure","Value",`RXQUALUL(0,0)`:`PATHLOSSDIFF(25,25)`) %>%
   select(BSC:Band,Measure,Value) %>%
   separate(Measure,into=c("Measure","Bin","c","d"),sep="[\\)\\(,]",convert=TRUE) %>%
   select(-c,-d) %>%
@@ -73,11 +69,17 @@ test <-gmrrTidy %>%
   select(-Bin) %>%
   dplyr::summarize(s=sum(Value,na.rm=TRUE))
 
-test2 <- gmrrTidy %>%
-  filter(kpi=="FER") %>%
-    select(Value)
+gmrrTidy %>% filter(kpi=="PATHLOSS") %>%
+  ggplot(aes(x=Bin,y=Value,fill=dir)) + geom_col(position = "dodge") +
+  facet_grid(Band~.)
 
+gmrrTidy %>% filter(kpi=="RXLEV") %>%
+  ggplot(aes(x=Bin,y=Value,col=dir)) +
+  geom_line(size=2) 
+  facet_grid(Band~dir)
 
+# Ignore below code chunk for now
+#========================================================================
 gmmrTidy <- gmrrTidy %>%
   mutate(TA_10Perc=wtd.quantile(seq(0,31,1),weights=as.numeric(unlist(TaVec)),probs=0.1)[[1]]) %>%
   mutate(TA_50Perc=wtd.quantile(seq(0,31,1),weights=as.numeric(unlist(TaVec)),probs=0.5)[[1]]) %>%
@@ -88,19 +90,28 @@ distinct(gmrrTidy,Value)
 a <- distinct(gmrrTidy,kpi,Bin)
 write_csv(a,"ranges.csv")
 
-gmrrTidy %>% filter(kpi=="RXQUAL") %>%
-  ggplot(aes(x=Bin,y=Value,fill=dir)) + geom_col(position = "dodge") +
-  facet_grid(Band~.)
-
-gmrrTidy %>% filter(kpi=="PATHLOSSDIFF") %>%
-  ggplot(aes(x=Bin,y=Value,col=dir)) +
-  geom_jitter(alpha=0.4) +
-  facet_grid(Band~dir)
-
-
 gmrrTidy %>%
   filter(kpi=="RXQUAL",dir=="DL",Bin==61,Band=="GMS900",Value>100)
+#========================================================================
 
+
+
+# Calculate the percentile values
+# Needs to be verified. Compare it with output of TA line
+gmrrPercentile <- gmrrTidy %>%
+  #filter(Cell==neededCell) %>%  
+  arrange (BSC,Cell,ChannelGroup,kpi,dir,Bin) %>%
+  group_by(BSC,Cell,ChannelGroup,SubCellType,Band,kpi,dir) %>%
+  mutate(pcnt=Value/sum(Value),cumPcnt=cumsum(pcnt)) %>%
+  select(-Value,-pcnt) %>%
+  arrange(BSC,Cell,ChannelGroup,SubCellType,Band,kpi,dir,desc(cumPcnt)) %>%
+  filter(cumPcnt<0.9) %>%
+  top_n(1,cumPcnt) %>% top_n(1,Bin) %>%
+  select(-cumPcnt) %>%
+  unite(KPI,kpi,dir) %>%
+  spread(KPI,Bin)
+
+write_csv(gmrrPercentile,"GsmMrr.csv")
 
 # I used this before, but now I want to make the one in the above lines
 gMrrSmall <- gmrr %>%
@@ -124,3 +135,21 @@ MrrTa <- gMrrSmall %>%
   select (-NoReportsPassedFilter,-TaVec)
 
 write_csv(MrrTa,"allDelta_Ta90Perc.csv")
+
+
+
+
+# analysis per cell
+neededcell <- "D39773"
+gMrrCell <- gmrr %>%
+  separate(CellName,into=c("BSC","Cell"),sep="/") %>%
+  filter (Cell == neededcell) %>%
+  select(1:7,contains("RXLEV")) %>%
+  gather("Measure","Value",8:135) %>%
+  separate(Measure,into=c("Measure","Bin","c","d"),sep="[\\)\\(,]",convert=TRUE) %>%
+  select(-c,-d) %>%
+  separate(Measure,into=c("kpi","dir"),sep=5) %>%
+  mutate(Bin=Bin-110)
+
+ggplot(gMrrCell,aes(x=Bin,y=Value,fill=dir)) + geom_col(position = "dodge")
+
