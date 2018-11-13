@@ -11,6 +11,8 @@ library(RANN)
 library(raster)
 #library(distances)
 
+setwd("~/Dropbox/R/gisWay")
+
 # Some needed variables
 globalPath <- "~/Dropbox/Voda/GISWay/sitesData/"
 exportPath <- "~/Dropbox/Voda/GISWay/export/"
@@ -31,7 +33,9 @@ getPhySite <- function(cellname) {
         Type="LTE1800"
       } else if (pType=="L21") {
         Type="LTE2100"
-      } else {
+      } else if (pType=="L09") {
+        Type="LTE900"}
+      else {
         Type="Invalid"
       }
       pSite=s[[1]][2]
@@ -113,9 +117,15 @@ cellDb <- cellDb %>%
   filter(Site!="Invalid") %>%
   ungroup()
 
+test <- cellDb %>%  filter(Site=="Z8001")
+
+# the below returns duplicate sites if a site doesn't have same no. of sectors for each technology
+# it needs revisiting
 siteDb <- cellDb %>%
-  group_by(Site,Vendor) %>%
-  summarise(noCells=n(),noSecs=n_distinct(Sector))
+  group_by(Site,Vendor,Type) %>%
+  summarise(noCells=n(),noSecs=n_distinct(Sector)) %>%
+  spread(Type,noCells,fill=0,sep="_noCells")
+colnames(siteDb) <- gsub("Type_","",colnames(siteDb))
 
 # join sites that exist in both atollDb and in CellDb
 sites <- atollDb %>%
@@ -171,9 +181,14 @@ sitesSp <- spCbind(utmSites,joinedSitesA)
 sitesSp <- spCbind(sitesSp,joinedSitesB)
 sitesDf <- bind_cols(sitesSp@data,as.data.frame(sitesSp@coords))
 
+
+# Just some not so fancy plots
+ggplot(data=sitesDf,aes(x=Long,y=Lat,col=Vendor)) + geom_point()
+qplot(Long,Lat,data=sitesDf,colour=Region)
+
 # Next lines are for clustering the sites
 sitesCord <- sitesDf %>%
-  select(Long,Lat)
+  dplyr::select(Long,Lat)
 sitesNames <- sitesDf$Site
 k=6
 noSites <- NROW(sitesNames)
@@ -189,9 +204,6 @@ sitesDf$maxDist <- apply(distMatrix[["nn.dists"]][,2:k],1,max)
 sitesDf$meanDist <- apply(distMatrix[["nn.dists"]][,2:k],1,mean)
 sitesDf$sdDist <- apply(distMatrix[["nn.dists"]][,2:k],1,sd)
 sitesDf <- sitesDf %>% mutate(normSd=sdDist/meanDist)
-
-ggplot(data=sitesDf,aes(x=Long,y=Lat,col=Vendor)) + geom_point()
-qplot(Long,Lat,data=sitesDf,colour=Region)
 
 # Clustering
 # I still need to try to do clutering based on underlying clutter class
@@ -235,7 +247,7 @@ write_csv(sites.clusters,"clusteredSitesAllK.txt")
 
 # Using k=5
 sites.5clusters <- dplyr::filter(sites.clusters,kValue==5)
-levels(sites.5clusters$Cluster) <- c("Urban","Rural","Road","Isolated","FarIsolated","NA","NA")
+levels(sites.5clusters$Cluster) <- c("Urban","Rural","Road","Remote","OutOfBoundaries","NA","NA")
 sites.5clusters <- sites.5clusters %>%
   select(Site,Cluster)
 # Merge with the sitesDf

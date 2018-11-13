@@ -7,7 +7,7 @@ It produced 5 categories
 1.       urban
 2.       rural
 3.       roads
-4.       isolated
+4.       remote
 5.       not needed, consider it isolated
  
 The features used are
@@ -15,6 +15,6 @@ The features used are
 ·         Nomralised std (std divided by the mean)
  
 The algorithm used is
-·         hclust with ward.D2 methos
+·         hclust with ward.D2 method
 
 
