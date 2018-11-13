@@ -9,17 +9,23 @@ library(ggplot2)
 library(maptools)
 library(RANN)
 library(raster)
-#library(distances)
 
 setwd("~/Dropbox/R/gisWay")
 
 # Some needed variables
 globalPath <- "~/Dropbox/Voda/GISWay/sitesData/"
-exportPath <- "~/Dropbox/Voda/GISWay/export/"
-localPath <- "~/data/geodata/Siradel_20151217_Country50m/DLU/"
+exportPath <- "~/Dropbox/Voda/GISWay/"
+localPath <- "D:/Optimisation/~InProgress/201806_GisFramework/geoData/Siradel2016_DLU/"
 atollFile <- "atollDb.txt"
-cellFile <- "oneCellDb.txt"
+cellFile <- "oneCellDb.csv"
 geoPath <- "/home/hnagaty/Dropbox/Voda/GISWay/geoData"
+#globalPath <- "~/Dropbox/Voda/GISWay/sitesData/"
+#exportPath <- "~/Dropbox/Voda/GISWay/"
+#localPath <- "~/data/geodata/Siradel_20151217_Country50m/DLU/"
+#atollFile <- "atollDb.txt"
+#cellFile <- "oneCellDb.txt"
+#geoPath <- "/home/hnagaty/Dropbox/Voda/GISWay/geoData"
+
 egUtmCRS <- CRS("+init=epsg:32636")
 wgs84CRS <- CRS("+init=epsg:4326")
 
@@ -92,8 +98,6 @@ getPhySite <- function(cellname) {
   return(paste(PhySite,Type,Sector,Carrier,sep=","))
 }
 
-
-
 cellMap <- read.delim("sectorMapping.txt")
 cellMap$Carrier<-as.factor(cellMap$Carrier)
 rownames(cellMap)<-cellMap$Suffix
@@ -102,6 +106,7 @@ atollDb <- read_delim(paste0(globalPath,atollFile),"\t",
                       escape_double = FALSE, trim_ws = TRUE, skip = 1,
                       col_names = c("Site","Lat","Long"),
                       col_types = "cdd")
+
 # Remove duplicate sites
 atollDb = atollDb[order(atollDb$Site),]
 atollDb = atollDb[!duplicated(atollDb$Site),]
@@ -156,10 +161,9 @@ gSheakhat <- gSheakhat %>%
   rename(SheakhaAr=SHYK_ANAME,SheakhaEn=SHYK_ENAME,QismEn=QISM_ENAME,GovernorateEn=GOV_ENAME)
 
 # Read the geodata
-siradel <- raster(paste0(localPath,"EGYPT_2_DLU_50m.bil"),crs="+init=epsg:32636")
-siradelLegend <- read_delim(paste0(localPath,"EGYPT_2_DLU_50m.mnu"),
+siradel <- raster(paste0(localPath,"EGYPT_3_DLU_50m.bil"),crs="+init=epsg:32636")
+siradelLegend <- read_delim(paste0(localPath,"EGYPT_3_DLU_50m.mnu"),
                             " ",col_names = c("Code","Clutter"))
-
 # extract clutter type of each site
 utmSites <- raster::extract(siradel,utmSites,sp=TRUE)
 utmSites <- utmSites %>% rename(Clutter=EGYPT_2_DLU_50m)
