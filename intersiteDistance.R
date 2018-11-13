@@ -1,5 +1,6 @@
 # Supplementary code to calculate the average intersite distance
 # Should be later incorporated into readSites.R
+# This script also has the clustering trials
 
 library(readr)
 library(dplyr)

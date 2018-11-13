@@ -1,6 +1,7 @@
 # Reads MRR files
 # Summarizes them
 # Do some plots on idividual cells or non groups
+
 library(readr)
 library(dplyr)
 library(tidyr)
@@ -18,6 +19,7 @@ pasteDir <- function(c) {
 
 myPath="d:/data/mrr/2018Sep25/"
 mrrFiles=paste0(mrrConf.df$File,".msmt")
+
 outDir <- "D:/Optimisation/~InProgress/201806_GisFramework/export/"
 
 gmrr <- data.frame()
@@ -52,7 +54,6 @@ gmrrRatio <- gmrrFiltered %>%
 # For use in plotting
 # It's okay for the warning messages below
 # Too slow if not filtered by cellname
-
 neededCell <- '55062'
 gmrrTidy <-  gmrrRatio %>%
   filter(Cell==neededCell | Cell==paste0("C",neededCell)) %>%
@@ -176,6 +177,7 @@ write_csv(MrrTa,"allDelta_Ta90Perc.csv")
 
 
 # analysis per cell
+<<<<<<< HEAD
 neededcell <- "11181"
 gMrrCell <- gmrr %>%
   #separate(CellName,into=c("BSC","Cell"),sep="/") %>%
