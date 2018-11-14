@@ -1,3 +1,4 @@
+# Simple parsing for TA from the GSM MRR files
 library(readr)
 library(dplyr)
 library(tidyr)

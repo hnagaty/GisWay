@@ -1,3 +1,13 @@
+# Remebering the variable names
+# atollDb --> The Atoll DB (per PhySite, live only)
+# cellDb --> The OneCell Database
+# siteDb --> The site database, as extracted from the OneCell DB
+# vfSites --> The result after joining OneCell DB & Atoll DB. This is a projected (UTM Zone 36) SpatialPointDataFrame
+#             This is the main data structure
+# vfSites.df --> df of vfSites
+
+# Load Libraries ----------------------------------------------------------
+library(raster)
 library(readr)
 library(dplyr)
 library(sp)
@@ -8,23 +18,22 @@ library(spdplyr)
 library(ggplot2)
 library(maptools)
 library(RANN)
-library(raster)
+library(tmap)
+library(ggmap)
+library(dendextend)
 
-setwd("~/Dropbox/R/gisWay")
-
-# Some needed variables
-globalPath <- "~/Dropbox/Voda/GISWay/sitesData/"
-exportPath <- "~/Dropbox/Voda/GISWay/"
-localPath <- "D:/Optimisation/~InProgress/201806_GisFramework/geoData/Siradel2016_DLU/"
-atollFile <- "atollDb.txt"
-cellFile <- "oneCellDb.csv"
-geoPath <- "/home/hnagaty/Dropbox/Voda/GISWay/geoData"
-#globalPath <- "~/Dropbox/Voda/GISWay/sitesData/"
-#exportPath <- "~/Dropbox/Voda/GISWay/"
-#localPath <- "~/data/geodata/Siradel_20151217_Country50m/DLU/"
-#atollFile <- "atollDb.txt"
-#cellFile <- "oneCellDb.txt"
-#geoPath <- "/home/hnagaty/Dropbox/Voda/GISWay/geoData"
+# Define variables & functions --------------------------------------------
+# Variables
+parentPath <- "~/Dropbox/Voda/GISWay/"
+#parentPath <- "sss"
+mainPath <- paste0(parentPath,"gisWay/")
+globalPath <- paste0(parentPath,"sitesData/")
+exportPath <- paste0(parentPath,"export/")
+geoPath <- paste0(parentPath,"geoData")
+localPath <- "~/data/geodata/Siradel_2016March/DLU/"
+#localPath <- "sdsd"
+atollFile <- "atollSites.csv"
+cellFile <- "oneCell.csv"
 
 egUtmCRS <- CRS("+init=epsg:32636")
 wgs84CRS <- CRS("+init=epsg:4326")
@@ -98,58 +107,87 @@ getPhySite <- function(cellname) {
   return(paste(PhySite,Type,Sector,Carrier,sep=","))
 }
 
-cellMap <- read.delim("sectorMapping.txt")
+
+
+# Read in the data --------------------------------------------------------
+# Cellmap file, maps cell suffix to sector & carrier. This is not the latest version
+cellMap <- read.delim(paste0(mainPath,"sectorMapping.txt"))
 cellMap$Carrier<-as.factor(cellMap$Carrier)
 rownames(cellMap)<-cellMap$Suffix
 
-atollDb <- read_delim(paste0(globalPath,atollFile),"\t",
-                      escape_double = FALSE, trim_ws = TRUE, skip = 1,
-                      col_names = c("Site","Lat","Long"),
-                      col_types = "cdd")
+atollDb <- read_csv(paste0(globalPath,atollFile),
+                    trim_ws = TRUE, skip = 1,
+                    col_types=cols(
+                      SiteID = col_skip(),
+                      PhySite = col_character(),
+                      NAME = col_skip(),
+                      LATITUDE = col_double(),
+                      LONGITUDE = col_double(),
+                      NAME_1 = col_skip(),
+                      SITE_TYPE = col_skip()
+                    ))
+colnames(atollDb) <- c("Site","Lat","Long")
+# I didn't investigate the warnings. Don't know why they are here
+atollDb <- atollDb %>%
+  filter(complete.cases(.)) %>%
+  distinct(Site,.keep_all=TRUE)
 
-# Remove duplicate sites
-atollDb = atollDb[order(atollDb$Site),]
-atollDb = atollDb[!duplicated(atollDb$Site),]
+# Remove duplicate sites, the R way
+#atollDb = atollDb[order(atollDb$Site),]
+#atollDb = atollDb[!duplicated(atollDb$Site),]
 
-cellDb <- read_delim(paste0(globalPath,cellFile),"\t",
-                     escape_double = FALSE, trim_ws = TRUE,col_types = "cc")
-cellDb$Vendor <- as.factor(cellDb$Vendor)
+cellDb <- read_csv(paste0(globalPath,cellFile),
+                   trim_ws = TRUE,
+                   col_types = cols_only(
+                     CELL = col_character(),
+                     Vendor = col_factor(levels=c("ER","HU"))
+                   ))
+colnames(cellDb) <- c("CellName","Vendor")
 
+# Deduce site info from the cell name sufix
 cellDb <- cellDb %>%
   rowwise %>%
   mutate(siteData=getPhySite(CellName)) %>%
-  separate(siteData,into=c("Site","Type","Sector"),sep=",") %>%    
+  separate(siteData,into=c("Site","Type","Sector","Carrier"),sep=",") %>%    
   filter(Site!="Invalid") %>%
   ungroup()
 
-test <- cellDb %>%  filter(Site=="Z8001")
+test <- cellDb %>%  filter(Site=="2999")
 
 # the below returns duplicate sites if a site doesn't have same no. of sectors for each technology
-# it needs revisiting
+# it needs revisiting -- DONE
 siteDb <- cellDb %>%
   group_by(Site,Vendor,Type) %>%
   summarise(noCells=n(),noSecs=n_distinct(Sector)) %>%
-  spread(Type,noCells,fill=0,sep="_noCells")
+  spread(Type,noCells,fill=0,sep="_noCells") %>%
+  group_by(Site,Vendor) %>%
+  summarise_all(max)
 colnames(siteDb) <- gsub("Type_","",colnames(siteDb))
+# there is one duplicate site (site 2999), that is Hu & Er
+# I didn't take an action into it
+# Should classify it as "Dual Vendor"
 
 # join sites that exist in both atollDb and in CellDb
-sites <- atollDb %>%
-  inner_join(siteDb)
+vfSites <- atollDb %>%
+  inner_join(siteDb) %>%
+  arrange(Vendor,Site)
 
 # Convert sites into sp object
-coordinates(sites) <- c("Long","Lat")
-proj4string(sites) <- wgs84CRS
-utmSites <-spTransform(sites, egUtmCRS) # transformation is needed to convert units to meters
+coordinates(vfSites) <- c("Long","Lat")
+proj4string(vfSites) <- wgs84CRS
+vfSites <-spTransform(vfSites, egUtmCRS) # projecting to utm zone 36 (convert units to meters)
 
+
+# Read in the Geodata -----------------------------------------------------
 # Read voda regions
-vodaRegions <- readOGR(geoPath,"Regions")
-vodaRegions <-spTransform(vodaRegions, egUtmCRS)
-vodaRegions <- vodaRegions %>%
+vfRegions <- readOGR(geoPath,"Regions")
+vfRegions <-spTransform(vfRegions, egUtmCRS)
+vfRegions <- vfRegions %>%
   dplyr::select(REGION) %>%
   rename(Region=REGION)
-vodaSubRegions <- readOGR(geoPath,"SubRegions")
-vodaSubRegions <-spTransform(vodaSubRegions, egUtmCRS)
-vodaSubRegions <- vodaSubRegions %>%
+vfSubRegions <- readOGR(geoPath,"SubRegions")
+vfSubRegions <-spTransform(vfSubRegions, egUtmCRS)
+vfSubRegions <- vfSubRegions %>%
   dplyr::select(REGION,SUB_REGION) %>% 
   rename(Region=REGION,SubRegion=SUB_REGION)
 
@@ -165,63 +203,93 @@ siradel <- raster(paste0(localPath,"EGYPT_3_DLU_50m.bil"),crs="+init=epsg:32636"
 siradelLegend <- read_delim(paste0(localPath,"EGYPT_3_DLU_50m.mnu"),
                             " ",col_names = c("Code","Clutter"))
 # extract clutter type of each site
-utmSites <- raster::extract(siradel,utmSites,sp=TRUE)
-utmSites <- utmSites %>% rename(Clutter=EGYPT_2_DLU_50m)
-utmSites@data$Clutter <- as.factor(utmSites@data$Clutter)
+vfSites <- raster::extract(siradel,vfSites,sp=TRUE)
+vfSites <- vfSites %>% rename(Clutter=EGYPT_3_DLU_50m)
+vfSites@data$Clutter <- as.factor(vfSites@data$Clutter)
 clutterNames <- siradelLegend$Clutter[siradelLegend$Clutter!="High_Dense_Vegetation"]
-levels(utmSites@data$Clutter) <- clutterNames
+levels(vfSites@data$Clutter) <- clutterNames
 
 
 # Spatial join
-joinedSitesA <- over(utmSites,vodaSubRegions)
-joinedSitesB <- over(utmSites,gSheakhat)
+joinedSitesA <- over(vfSites,vfSubRegions)
+joinedSitesB <- over(vfSites,gSheakhat)
 # Method #1
 # the output is a data.frame
-#sitesDf <- bind_cols(utmSites@data,joinedSitesA,joinedSitesB)
+#sitesDf <- bind_cols(vfSites@data,joinedSitesA,joinedSitesB)
 #write_csv(sitesDf,paste0(exportPath,"vodaSites.txt"))
 # Method #2
 # the output is an sp object
-sitesSp <- spCbind(utmSites,joinedSitesA)
-sitesSp <- spCbind(sitesSp,joinedSitesB)
-sitesDf <- bind_cols(sitesSp@data,as.data.frame(sitesSp@coords))
+vfSites <- spCbind(vfSites,joinedSitesA)
+vfSites <- spCbind(vfSites,joinedSitesB)
+vfSitestmp <- spTransform(vfSites,wgs84CRS)
+vfSites.df <- bind_cols(vfSitestmp@data,as.data.frame(vfSitestmp@coords))
+rm(joinedSitesA,joinedSitesB,vfSitestmp)
 
 
+# Plots -------------------------------------------------------------------
 # Just some not so fancy plots
-ggplot(data=sitesDf,aes(x=Long,y=Lat,col=Vendor)) + geom_point()
-qplot(Long,Lat,data=sitesDf,colour=Region)
+p <- ggplot(vfSites.df,aes(x=Long,y=Lat))
+p + geom_point(aes(colour=Vendor))
+qplot(Long,Lat,data=vfSites.df,colour=Region)
+qtm(vfSites,dots.col="Vendor",title="VF Sites")
+qmplot(Long, Lat, data = vfSites.df,geom = "point") #, color = Vendor)
+egBoundaries <- as.vector(spTransform(vfSites,wgs84CRS)@bbox)
+names(egBoundaries) <- c("left","bottom","right","top")
+egMap <- get_stamenmap(egBoundaries, maptype = "toner-lite",zoom=7)
+ggmap(egMap,base_layer = p) +
+  geom_point(aes(colour=Vendor),size=0.5)
+tm_shape(vfSites) +
+  tm_dots(col="Vendor")
 
-# Next lines are for clustering the sites
-sitesCord <- sitesDf %>%
-  dplyr::select(Long,Lat)
-sitesNames <- sitesDf$Site
+
+# Intersite distances metrics ---------------------------------------------
+
+sitesCords <- vfSites@coords
 k=6
+
+
+# Metrics based on K nearest sites
+distMatrix <- nn2(sitesCords,k=k)
+vfSites$minDist <- apply(distMatrix[["nn.dists"]][,2:k],1,min)
+vfSites$maxDist <- apply(distMatrix[["nn.dists"]][,2:k],1,max)
+vfSites$meanDist <- apply(distMatrix[["nn.dists"]][,2:k],1,mean)
+vfSites$sdDist <- apply(distMatrix[["nn.dists"]][,2:k],1,sd)
+vfSites <- vfSites %>% mutate(normSd=sdDist/meanDist)
+
+#temp export, for debugging
+write_csv(vfSites@data,paste0(exportPath,"vfSitestmp.csv"))
+
+# Hierarical Clustering ---------------------------------------------------
+
+# Clustering
+clustFeatures <- cbind(vfSites$meanDist,vfSites$normSd)
+rownames(clustFeatures) <- vfSites$Site
+colnames(clustFeatures) <- c("meanDist","SD/Mean")
+sitesNames <- vfSites@data$Site
 noSites <- NROW(sitesNames)
-# not used library
-#sitesDistances <- distances(sitesDf,id_variable = "Site",dist_variables = c("Long","Lat"))
-#nearestSitesIdx <- nearest_neighbor_search(sitesDistances,k=k)
-#nearestSitesNames <- matrix(sitesNames[nearestSitesIdx],nrow=k,ncol=noSites)
-
-# K nearest sites
-distMatrix <- nn2(sitesCord,k=k)
-sitesDf$minDist <- apply(distMatrix[["nn.dists"]][,2:k],1,min)
-sitesDf$maxDist <- apply(distMatrix[["nn.dists"]][,2:k],1,max)
-sitesDf$meanDist <- apply(distMatrix[["nn.dists"]][,2:k],1,mean)
-sitesDf$sdDist <- apply(distMatrix[["nn.dists"]][,2:k],1,sd)
-sitesDf <- sitesDf %>% mutate(normSd=sdDist/meanDist)
-
-# Clustering
-# I still need to try to do clutering based on underlying clutter class
-#sitesCl <- sitesDf %>% dplyr::select(Clutter,meanDist,sdDist)
-
-#write_csv(sites,"vodaSitesDf.txt")
-
-# Clustering
-sitesCl <- sitesDf %>%
-  dplyr::select(meanDist,normSd)
 
 # Hierarchical Clustering
-hclust.dist <- dist(sitesCl, method = "euclidean") # distance matrix
-hclust.fit <- hclust(hclust.dist, method="ward.D2")
+clustDist <- dist(clustFeatures, method = "euclidean") # distance matrix
+hclust.fit <- hclust(clustDist, method="ward.D2")
+# Dendogram plot
+plot(hclust.fit)
+# Colored dendogram
+dendSites <- as.dendrogram(hclust.fit)
+dendColored <- color_branches(dendSites, k = 5)
+plot(dendColored,leaflab="none") #,ylim=c(1e+05,6e+05))
+
+
+# Using k=5
+k=5
+vfSites$SiteClass <- as.factor(cutree(hclust.fit, k=k))
+levels(vfSites$SiteClass) <- c("Urban","Rural","Road","Remote","OutOfBoundaries")
+table(vfSites$Region,vfSites$SiteClass)
+write_csv(vfSites@data,paste0(exportPath,"vodaSites_201811.txt"))
+
+
+
+# Further hclust trials ---------------------------------------------------
+
 # For loop for different k values
 sites.clusters <- data.frame(Site=character(),
                              Long=double(),
@@ -249,12 +317,4 @@ for (k in 2:7) {
 }
 write_csv(sites.clusters,"clusteredSitesAllK.txt")
 
-# Using k=5
-sites.5clusters <- dplyr::filter(sites.clusters,kValue==5)
-levels(sites.5clusters$Cluster) <- c("Urban","Rural","Road","Remote","OutOfBoundaries","NA","NA")
-sites.5clusters <- sites.5clusters %>%
-  select(Site,Cluster)
-# Merge with the sitesDf
-sitesDf <- inner_join(sitesDf,sites.5clusters)
-write_csv(sitesDf,paste0(exportPath,"vodaSites.txt"))
-table(sitesDf$Region,sitesDf$Cluster)
+

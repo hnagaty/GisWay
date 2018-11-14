@@ -1,5 +1,5 @@
 # Supplementary code to calculate the average intersite distance
-# Should be later incorporated into readSites.R
+# It's now incorporated into readSites.R
 # This script also has the clustering trials
 
 library(readr)
@@ -40,8 +40,13 @@ sitesNames <- sitesDf$Site
 
 k=6
 noSites <- NROW(sitesNames)
-distMatrix <- nn2(sitesCord,k=k)
 
+# not used library
+#sitesDistances <- distances(sitesDf,id_variable = "Site",dist_variables = c("Long","Lat"))
+#nearestSitesIdx <- nearest_neighbor_search(sitesDistances,k=k)
+#nearestSitesNames <- matrix(sitesNames[nearestSitesIdx],nrow=k,ncol=noSites)
+
+distMatrix <- nn2(sitesCord,k=k)
 sitesDf$minDist <- apply(distMatrix[["nn.dists"]][,2:k],1,min)
 sitesDf$maxDist <- apply(distMatrix[["nn.dists"]][,2:k],1,max)
 sitesDf$meanDist <- apply(distMatrix[["nn.dists"]][,2:k],1,mean)

@@ -17,11 +17,16 @@ pasteDir <- function(c) {
 }
   
 
-myPath="d:/data/mrr/2018Sep25/"
-mrrFiles=paste0(mrrConf.df$File,".msmt")
+myPath <- "d:/data/mrr/2018Sep25/"
+myPath <- "~/data/gmrr/"
+myPath <- dataDir
+mrrFiles <- paste0(mrrConf.df$File,".msmt")
 
 outDir <- "D:/Optimisation/~InProgress/201806_GisFramework/export/"
+outDir <- "~/Dropbox/Voda/GISWay/export/"
 
+
+# Read in the GSM MRR files -----------------------------------------------
 gmrr <- data.frame()
 for (m in mrrFiles) {
   gmrrtmp <- read_tsv(paste0(myPath,m))
@@ -50,6 +55,7 @@ nCols <- ncol(gmrrFiltered)
 gmrrRatio <- gmrrFiltered %>%
   mutate_at(11:nCols,funs(. / NoReportsPassedFilter))
 
+# Tidy for single cell plotting -------------------------------------------
 # Make a tidy version (from cols to rows) for the MRR
 # For use in plotting
 # It's okay for the warning messages below
@@ -66,7 +72,10 @@ gmrrTidy <-  gmrrRatio %>%
   rowwise() %>%
   mutate(dir = pasteDir(dir)) %>%
   ungroup() %>%
-  select(BSC:kpi,dir,Bin,Value)
+  select(BSC:kpi,dir,Bin,Value) %>%
+  mutate(Bin=ifelse(kpi=="RXLEV",Bin-110,Bin))
+
+
 
 kpiListBi1 <- c("PATHLOSS","RXLEV")
 kpiListBi2 <- c("RXQUAL")
@@ -103,6 +112,7 @@ plotUniDirLine <- function(kpiV) {
 plotUniDirBar <- function(kpiV,taLimit) {
   gmrrTidy %>% filter(kpi==kpiV) %>%
     filter(!(kpi=="TAVAL" & Bin >= taLimit )) %>%
+    mutate(Bin=as.factor(Bin)) %>%
     ggplot(aes(x=Bin,y=Value)) +
     geom_col(fill="orange") +
     facet_grid(Band~.) +
@@ -177,7 +187,6 @@ write_csv(MrrTa,"allDelta_Ta90Perc.csv")
 
 
 # analysis per cell
-<<<<<<< HEAD
 neededcell <- "11181"
 gMrrCell <- gmrr %>%
   #separate(CellName,into=c("BSC","Cell"),sep="/") %>%
