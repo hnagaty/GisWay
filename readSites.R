@@ -239,7 +239,8 @@ egMap <- get_stamenmap(egBoundaries, maptype = "toner-lite",zoom=7)
 ggmap(egMap,base_layer = p) +
   geom_point(aes(colour=Vendor),size=0.5)
 tm_shape(vfSites) +
-  tm_dots(col="Vendor")
+  tm_dots(col="Vendor") +
+  tm_compass()
 
 
 # Intersite distances metrics ---------------------------------------------
@@ -261,14 +262,10 @@ write_csv(vfSites@data,paste0(exportPath,"vfSitestmp.csv"))
 
 # Hierarical Clustering ---------------------------------------------------
 
-# Clustering
+# Hierarchical Clustering
 clustFeatures <- cbind(vfSites$meanDist,vfSites$normSd)
 rownames(clustFeatures) <- vfSites$Site
 colnames(clustFeatures) <- c("meanDist","SD/Mean")
-sitesNames <- vfSites@data$Site
-noSites <- NROW(sitesNames)
-
-# Hierarchical Clustering
 clustDist <- dist(clustFeatures, method = "euclidean") # distance matrix
 hclust.fit <- hclust(clustDist, method="ward.D2")
 # Dendogram plot
@@ -278,7 +275,6 @@ dendSites <- as.dendrogram(hclust.fit)
 dendColored <- color_branches(dendSites, k = 5)
 plot(dendColored,leaflab="none") #,ylim=c(1e+05,6e+05))
 
-
 # Using k=5
 k=5
 vfSites$SiteClass <- as.factor(cutree(hclust.fit, k=k))
@@ -286,7 +282,9 @@ levels(vfSites$SiteClass) <- c("Urban","Rural","Road","Remote","OutOfBoundaries"
 table(vfSites$Region,vfSites$SiteClass)
 write_csv(vfSites@data,paste0(exportPath,"vodaSites_201811.txt"))
 
-
+# Geoplots
+tm_shape(vfSites) +
+  tm_dots(col="SiteClass")
 
 # Further hclust trials ---------------------------------------------------
 
