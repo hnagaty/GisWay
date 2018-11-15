@@ -1,6 +1,6 @@
 # Reads MRR files
 # Summarizes them
-# Do some plots on idividual cells or non groups
+# Do some plots on idividual cells or groups
 
 library(readr)
 library(dplyr)
@@ -74,8 +74,6 @@ gmrrTidy <-  gmrrRatio %>%
   ungroup() %>%
   select(BSC:kpi,dir,Bin,Value) %>%
   mutate(Bin=ifelse(kpi=="RXLEV",Bin-110,Bin))
-
-
 
 kpiListBi1 <- c("PATHLOSS","RXLEV")
 kpiListBi2 <- c("RXQUAL")

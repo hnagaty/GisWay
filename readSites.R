@@ -24,14 +24,14 @@ library(dendextend)
 
 # Define variables & functions --------------------------------------------
 # Variables
-parentPath <- "~/Dropbox/Voda/GISWay/"
-#parentPath <- "sss"
+#parentPath <- "~/Dropbox/Voda/GISWay/"
+parentPath <- "D:/Optimisation/~InProgress/201806_GisFramework/"
 mainPath <- paste0(parentPath,"gisWay/")
 globalPath <- paste0(parentPath,"sitesData/")
 exportPath <- paste0(parentPath,"export/")
 geoPath <- paste0(parentPath,"geoData")
-localPath <- "~/data/geodata/Siradel_2016March/DLU/"
-#localPath <- "sdsd"
+#localPath <- "~/data/geodata/Siradel_2016March/DLU/"
+localPath <- "D:/Optimisation/~InProgress/201806_GisFramework/geoData/Siradel_2016_Country/DLU/"
 atollFile <- "atollSites.csv"
 cellFile <- "oneCell.csv"
 
@@ -185,14 +185,15 @@ vfRegions <-spTransform(vfRegions, egUtmCRS)
 vfRegions <- vfRegions %>%
   dplyr::select(REGION) %>%
   rename(Region=REGION)
-vfSubRegions <- readOGR(geoPath,"SubRegions")
+vfSubRegions <- readOGR(geoPath,"SubRegionss")
 vfSubRegions <-spTransform(vfSubRegions, egUtmCRS)
 vfSubRegions <- vfSubRegions %>%
   dplyr::select(REGION,SUB_REGION) %>% 
   rename(Region=REGION,SubRegion=SUB_REGION)
 
 # Read the administrative divisions
-gSheakhat <- readOGR(geoPath,"SheakhatCleaned")
+#gSheakhat <- readOGR(geoPath,"SheakhatCleaned")
+gSheakhat <- readOGR(geoPath,"SHYK_2014Jan")
 gSheakhat <-spTransform(gSheakhat, egUtmCRS)
 gSheakhat <- gSheakhat %>%
   dplyr::select(SHYK_ANAME,SHYK_ENAME,QISM_ENAME,GOV_ENAME) %>%
@@ -228,6 +229,8 @@ rm(joinedSitesA,joinedSitesB,vfSitestmp)
 
 # Plots -------------------------------------------------------------------
 # Just some not so fancy plots
+tmap_mode("view")
+#tmap_mode("plot")
 p <- ggplot(vfSites.df,aes(x=Long,y=Lat))
 p + geom_point(aes(colour=Vendor))
 qplot(Long,Lat,data=vfSites.df,colour=Region)
@@ -248,7 +251,6 @@ tm_shape(vfSites) +
 sitesCords <- vfSites@coords
 k=6
 
-
 # Metrics based on K nearest sites
 distMatrix <- nn2(sitesCords,k=k)
 vfSites$minDist <- apply(distMatrix[["nn.dists"]][,2:k],1,min)
@@ -258,7 +260,7 @@ vfSites$sdDist <- apply(distMatrix[["nn.dists"]][,2:k],1,sd)
 vfSites <- vfSites %>% mutate(normSd=sdDist/meanDist)
 
 #temp export, for debugging
-write_csv(vfSites@data,paste0(exportPath,"vfSitestmp.csv"))
+#write_csv(vfSites@data,paste0(exportPath,"vfSitestmp.csv"))
 
 # Hierarical Clustering ---------------------------------------------------
 
@@ -269,7 +271,7 @@ colnames(clustFeatures) <- c("meanDist","SD/Mean")
 clustDist <- dist(clustFeatures, method = "euclidean") # distance matrix
 hclust.fit <- hclust(clustDist, method="ward.D2")
 # Dendogram plot
-plot(hclust.fit)
+#plot(hclust.fit)
 # Colored dendogram
 dendSites <- as.dendrogram(hclust.fit)
 dendColored <- color_branches(dendSites, k = 5)
