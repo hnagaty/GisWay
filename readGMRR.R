@@ -2,6 +2,8 @@
 # Summarizes them
 # Do some plots on idividual cells or groups
 
+
+# Load libraries ----------------------------------------------------------
 library(readr)
 library(dplyr)
 library(tidyr)
@@ -9,13 +11,14 @@ library(ggplot2)
 library(Hmisc)
 library(purrr)
 
+
+# Variables & functions ---------------------------------------------------
 pasteDir <- function(c) {
   if (nchar(c) == 2) {return (c)}
   else if (c=="BSPOWER") {return("DL")}
   else if (c=="MSPOWER") {return("UL")}
   else {return("BL")}
 }
-  
 
 myPath <- "d:/data/mrr/2018Sep25/"
 myPath <- "~/data/gmrr/"
@@ -23,7 +26,7 @@ myPath <- dataDir
 mrrFiles <- paste0(mrrConf.df$File,".msmt")
 
 outDir <- "D:/Optimisation/~InProgress/201806_GisFramework/export/"
-outDir <- "~/Dropbox/Voda/GISWay/export/"
+#outDir <- "~/Dropbox/Voda/GISWay/export/"
 
 
 # Read in the GSM MRR files -----------------------------------------------
@@ -44,8 +47,13 @@ gmrr <- gmrr %>%
   summarise_all(sum) %>%
   ungroup()
 
-write_csv(gmrr,paste0(outDir,"GsmMRR.csv"))
 
+# Save &  Load ------------------------------------------------------------
+write_csv(gmrr,paste0(outDir,"GsmMRR.csv"))
+gmrr <- read_csv(paste0(outDir,"GsmMRR.csv"))
+
+
+# Further Processing ------------------------------------------------------
 gmrrFiltered <- gmrr %>%
   separate(CellName,into=c("BSC","Cell"),sep="/") %>%
   filter(NoReportsPassedFilter>1000) %>%
@@ -54,6 +62,7 @@ gmrrFiltered <- gmrr %>%
 nCols <- ncol(gmrrFiltered)
 gmrrRatio <- gmrrFiltered %>%
   mutate_at(11:nCols,funs(. / NoReportsPassedFilter))
+#rm(gmrrFiltered,gmrr)
 
 # Tidy for single cell plotting -------------------------------------------
 # Make a tidy version (from cols to rows) for the MRR
@@ -75,11 +84,15 @@ gmrrTidy <-  gmrrRatio %>%
   select(BSC:kpi,dir,Bin,Value) %>%
   mutate(Bin=ifelse(kpi=="RXLEV",Bin-110,Bin))
 
+
+# KPI List ----------------------------------------------------------------
 kpiListBi1 <- c("PATHLOSS","RXLEV")
 kpiListBi2 <- c("RXQUAL")
 kpiListUni1 <- c("PATHLOSSDIFF")
 kpiListUni2 <- c("BSPOWER","MSPOWER","TAVAL")
 
+
+# Plotting Functions ------------------------------------------------------
 # Define generic plotting functions
 plotBiDirLine <- function(kpiV) {
   gmrrTidy %>% filter(kpi==kpiV) %>%
@@ -118,10 +131,18 @@ plotUniDirBar <- function(kpiV,taLimit) {
     labs(title=kpiV,subtitle="Distribution",x="Value",y="Percentage",fill="Direction")
 }
 
+
+# Generate the Plots ------------------------------------------------------
+
 map(kpiListBi1,plotBiDirLine)
 map(kpiListBi2,plotBiDirBar)
 map(kpiListUni1,plotUniDirLine)
 map(kpiListUni2,plotUniDirBar,8)
+
+
+
+# === Others ==== -------------------------------------------------------------
+
 
 # Ignore below code chunk for now
 #========================================================================

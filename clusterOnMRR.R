@@ -11,9 +11,9 @@ library(tibble)
 library(purrr)
 
 myPath="d:/data/mrr/2018Sep25/"
-mrrFiles=paste0(mrrConf.df$File,".msmt")
 exportPath <- "D:/Optimisation/~InProgress/201806_GisFramework/export/"
 
+mrrFiles=paste0(mrrConf.df$File,".msmt")
 gmrr <- data.frame()
 for (m in mrrFiles) {
   gmrrtmp <- read_tsv(paste0(myPath,m))
@@ -29,6 +29,7 @@ gmrr <- gmrr %>%
 gmrr <- gmrr %>%
   group_by(CellName,ChannelGroup,SubCellType,Band) %>%
   summarise_all(sum) %>%
+  ungroup() %>%
   separate(CellName,into=c("BSC","Cell"),sep="/") %>%
   filter(NoReportsPassedFilter>1000) %>%
   select(-(NoFERULPassedFilter:NoFERULDLUnfiltered)) %>%
@@ -41,7 +42,42 @@ nCols <- ncol(gmrr)
 gmrrRatio <- gmrr %>%
   mutate_at(11:nCols,funs(. / NoReportsPassedFilter)) %>%
   select(-contains("TrafficLevelM"))
-gmrrRatio <- add_column(gmrrRatio, cluster=0, .after = 2)
+#gmrrRatio <- add_column(gmrrRatio, cluster=0, .after = 2)
+
+#rm(gmrr)
+
+neededCell='D71194'
+
+gmrrTidy <-  gmrrRatio %>%
+  filter(Cell==neededCell | Cell==paste0("C",neededCell)) %>%
+  gather("Measure","Value",`RXQUALUL(0,0)`:`PATHLOSSDIFF(25,25)`) %>%
+  select(BSC:Band,Measure,Value) %>%
+  separate(Measure,into=c("Measure","Bin","c","d"),sep="[\\)\\(,]",convert=TRUE) %>%
+  select(-c,-d) %>%
+  mutate(dir=substring(Measure,regexpr("UL|DL",Measure))) %>%
+  separate(Measure,into=c("kpi"),sep="UL|DL") %>%
+  rowwise() %>%
+  mutate(dir = pasteDir(dir)) %>%
+  ungroup() %>%
+  select(BSC:kpi,dir,Bin,Value)
+  mutate(Bin=ifelse(kpi=="RXLEV",Bin-110,Bin))
+
+
+# Calculate the percentile values
+# Needs to be verified. Compare it with output of TA line
+gmrrPercentile <- gmrrTidy %>%
+  #filter(Cell==neededCell) %>%  
+  arrange (BSC,Cell,ChannelGroup,kpi,dir,Bin) %>%
+  group_by(BSC,Cell,ChannelGroup,SubCellType,Band,kpi,dir) %>%
+  mutate(pcnt=Value/sum(Value),cumPcnt=cumsum(pcnt)) %>%
+  select(-Value,-pcnt) %>%
+  arrange(BSC,Cell,ChannelGroup,SubCellType,Band,kpi,dir,desc(cumPcnt)) %>%
+  filter(cumPcnt<0.9) %>%
+  top_n(1,cumPcnt) %>% top_n(1,Bin) %>%
+  select(-cumPcnt) %>%
+  unite(KPI,kpi,dir) %>%
+  spread(KPI,Bin)
+
 
 data <- gmrrRatio %>%
   select(`TrafficLevelCS(E)`:`PATHLOSSDIFF(25,25)`)
