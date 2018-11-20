@@ -222,8 +222,6 @@ joinedSitesB <- over(vfSites,gSheakhat)
 # the output is an sp object
 vfSites <- spCbind(vfSites,joinedSitesA)
 vfSites <- spCbind(vfSites,joinedSitesB)
-vfSitestmp <- spTransform(vfSites,wgs84CRS)
-vfSites.df <- bind_cols(vfSitestmp@data,as.data.frame(vfSitestmp@coords))
 rm(joinedSitesA,joinedSitesB,vfSitestmp)
 
 
@@ -274,15 +272,19 @@ hclust.fit <- hclust(clustDist, method="ward.D2")
 #plot(hclust.fit)
 # Colored dendogram
 dendSites <- as.dendrogram(hclust.fit)
-dendColored <- color_branches(dendSites, k = 5)
+dendColored <- color_branches(dendSites, k = 4)
 plot(dendColored,leaflab="none") #,ylim=c(1e+05,6e+05))
 
 # Using k=5
-k=5
+k=4
 vfSites$SiteClass <- as.factor(cutree(hclust.fit, k=k))
-levels(vfSites$SiteClass) <- c("Urban","Rural","Road","Remote","OutOfBoundaries")
+levels(vfSites$SiteClass) <- c("Urban","Rural","Road","Remote")
 table(vfSites$Region,vfSites$SiteClass)
-write_csv(vfSites@data,paste0(exportPath,"vodaSites_201811.txt"))
+
+vfSitestmp <- spTransform(vfSites,wgs84CRS)
+vfSites.df <- bind_cols(vfSitestmp@data,as.data.frame(vfSitestmp@coords))
+rm(vfSitestmp)
+write_csv(vfSites.df,paste0(exportPath,"vodaSites_201811b.txt"))
 
 # Geoplots
 tm_shape(vfSites) +
