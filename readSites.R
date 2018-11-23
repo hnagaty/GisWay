@@ -4,7 +4,7 @@
 # siteDb --> The site database, as extracted from the OneCell DB
 # vfSites --> The result after joining OneCell DB & Atoll DB. This is a projected (UTM Zone 36) SpatialPointDataFrame
 #             This is the main data structure
-# vfSites.df --> df of vfSites
+# vfSites.df --> df of vfSites, with the coords in lat/long
 
 # Load Libraries ----------------------------------------------------------
 library(raster)
@@ -152,7 +152,7 @@ cellDb <- cellDb %>%
   filter(Site!="Invalid") %>%
   ungroup()
 
-test <- cellDb %>%  filter(Site=="2999")
+#test <- cellDb %>%  filter(Site=="2999")
 
 # the below returns duplicate sites if a site doesn't have same no. of sectors for each technology
 # it needs revisiting -- DONE
@@ -222,7 +222,8 @@ joinedSitesB <- over(vfSites,gSheakhat)
 # the output is an sp object
 vfSites <- spCbind(vfSites,joinedSitesA)
 vfSites <- spCbind(vfSites,joinedSitesB)
-rm(joinedSitesA,joinedSitesB,vfSitestmp)
+vfSites.df <- bind_cols(vfSites@data,as.data.frame(vfSites@coords))
+rm(joinedSitesA,joinedSitesB)
 
 
 # Plots -------------------------------------------------------------------
@@ -247,7 +248,7 @@ tm_shape(vfSites) +
 # Intersite distances metrics ---------------------------------------------
 
 sitesCords <- vfSites@coords
-k=6
+k=6 # no of nearest nbrs to consider
 
 # Metrics based on K nearest sites
 distMatrix <- nn2(sitesCords,k=k)
@@ -275,20 +276,20 @@ dendSites <- as.dendrogram(hclust.fit)
 dendColored <- color_branches(dendSites, k = 4)
 plot(dendColored,leaflab="none") #,ylim=c(1e+05,6e+05))
 
-# Using k=5
+# Using k=4
 k=4
 vfSites$SiteClass <- as.factor(cutree(hclust.fit, k=k))
 levels(vfSites$SiteClass) <- c("Urban","Rural","Road","Remote")
 table(vfSites$Region,vfSites$SiteClass)
 
+#plot the clusters
+qtm(vfSites,dots.col="SiteClass",title="VF Sites")
+
+#save the sites df (in Lat/Long format)
 vfSitestmp <- spTransform(vfSites,wgs84CRS)
 vfSites.df <- bind_cols(vfSitestmp@data,as.data.frame(vfSitestmp@coords))
 rm(vfSitestmp)
 write_csv(vfSites.df,paste0(exportPath,"vodaSites_201811b.txt"))
-
-# Geoplots
-tm_shape(vfSites) +
-  tm_dots(col="SiteClass")
 
 # Further hclust trials ---------------------------------------------------
 
