@@ -12,6 +12,7 @@ library(purrr)
 library(doParallel)
 library(dendextend)
 library(tictoc)
+library(dummies)
 
 
 registerDoParallel(cores=2) #multi-core like functionality
@@ -58,7 +59,7 @@ nCols <- ncol(gmrr)
 gmrrRatio <- gmrr %>%
   mutate_at(11:nCols,funs(. / NoReportsPassedFilter)) %>%
   select(-contains("TrafficLevelM"))
-gmrrRatio <- add_column(gmrrRatio, cluster=0, .after = 2)
+#gmrrRatio <- add_column(gmrrRatio, cluster=0, .after = 3)
 
 #rm(gmrr)
 
@@ -74,7 +75,7 @@ qtlsnames <- paste0("Q",qtls*100)
 gmrr2 <-top_n(gmrr,100)
 
 tic("Tidy")
-gmrrFeatures <-  gmrr2 %>%
+gmrrFeatures <-  gmrr %>%
   select(Cell,ChannelGroup,Band,`TrafficLevelCS(E)`,`RXQUALUL(0,0)`:`PATHLOSSDIFF(25,25)`) %>%
   rename(Traffic=`TrafficLevelCS(E)`) %>%  
   gather("Measure","Value",`RXQUALUL(0,0)`:`PATHLOSSDIFF(25,25)`) %>%
@@ -88,40 +89,32 @@ gmrrFeatures <-  gmrr2 %>%
                                 probs=qtls),
          collapse=",")) %>%
   select(-val,-cnt) %>%
-  #separate(q,sep=",",into=qtlsnames)
-  spread(key=Measure,value = q)
+  separate(q,sep=",",into=qtlsnames,convert=TRUE) %>%
+  gather(key=qtl,value=value,-(Cell:traffic)) %>%
+  unite(ftr,Measure,qtl,sep="-") %>%
+  spread(key=ftr,value = value)
 toc()
+gmrrFeatures$Band <- as.factor(gmrrFeatures$Band)
 
-gmrrReshaled <- reshape(gmrrFeatures,idvar=c("Cell","ChannelGroup","Band","traffic"),timevar="Measure",direction = "wide")
-saveRDS(gmrrTidy,file=paste0(exportPath,"gMrrTidy.rds"))
-gmrrTidy <- readRDS(file=paste0(exportPath,"gMrrTidy.rds"))
+saveRDS(gmrrFeatures,file=paste0(exportPath,"gmrrFeatures.rds"))
+gmrrFeatures <- readRDS(file=paste0(exportPath,"gmrrFeatures.rds"))
   
 
-# Calculate the percentile values
-# Needs to be verified. Compare it with output of TA line
-gmrrPercentile <- gmrrTidy %>%
-  #filter(Cell==neededCell) %>%  
-  arrange (BSC,Cell,ChannelGroup,kpi,dir,Bin) %>%
-  group_by(BSC,Cell,ChannelGroup,SubCellType,Band,kpi,dir) %>%
-  mutate(pcnt=Value/sum(Value),cumPcnt=cumsum(pcnt)) %>%
-  select(-Value,-pcnt) %>%
-  arrange(BSC,Cell,ChannelGroup,SubCellType,Band,kpi,dir,desc(cumPcnt)) %>%
-  filter(cumPcnt<0.9) %>%
-  top_n(1,cumPcnt) %>% top_n(1,Bin) %>%
-  select(-cumPcnt) %>%
-  unite(KPI,kpi,dir) %>%
-  spread(KPI,Bin)
-
-
-data <- gmrrRatio %>%
+#data <- gmrrRatio %>%
   select(`TrafficLevelCS(E)`:`PATHLOSSDIFF(25,25)`)
+
+data <- select(gmrrFeatures,-Cell,-ChannelGroup,-Band)
+bandDummy <- dummy(gmrrFeatures$Band) #one hot encoding
+rownames(bandDummy) <- gmrrFeatures$Cell
+data <- bind_cols(data,as.data.frame(bandDummy))
+labels <- select(gmrrFeatures,Cell,ChannelGroup)
 
 dataScaled <- scale(data)
 #mrr.dist <- dist(dataScaled, method = 'euclidean') #not needed as I use hclust,vector
 #mrr.hclust.fit <- hclust(mrr.dist, method = 'complete') #causes memory overflow
 mrrHclust.fit <- hclust.vector(dataScaled,method="ward",metric="euclidean")
-saveRDS(mrrHclust.fit,file=paste0(exportPath,"HClustFit_Nov21.rds"))
-mrrHclust.fit <- readRDS(file=paste0(exportPath,"HClustFit_Nov21.rds"))
+saveRDS(mrrHclust.fit,file=paste0(exportPath,"HClustFitReducedFeats_Nov25.rds"))
+mrrHclust.fit <- readRDS(file=paste0(exportPath,"HClustFitReducedFeats_Nov25.rds"))
 
 # Dendogram plot
 k=2
@@ -131,11 +124,11 @@ plot(dendColored,leaflab="none")
 
 mrr.clusters <- as.factor(cutree(mrrHclust.fit, k = k))
 table(mrr.clusters)
-gmrrRatio$cluster <- mrr.clusters
+mrrClusters.df <- bind_cols(labels,data.frame(cluster=mrr.clusters))
+gmrrRatio <- inner_join(gmrrRatio,mrrClusters.df,by=c("Cell", "ChannelGroup"))
 table(gmrrRatio$cluster,gmrrRatio$Band) # ==> cluster 1 is mostly 1800, cluster is mostly 900
 
-# Then, plots for each class
-neededCell <- '55062'
+
 
 rm(gmrrTidy)
 tic("Tidy GMRR")
@@ -153,9 +146,6 @@ gmrrTidy <-  gmrrRatio %>%
   mutate(Bin=ifelse(kpi=="RXLEV",Bin-110,Bin))
 toc()
 
-
-#saveRDS(gmrrTidy,file=paste0(exportPath,"gMrrTidy.rds"))
-#gmrrTidy <- readRDS(file=paste0(exportPath,"gMrrTidy.rds"))
 
 kpiListBi1 <- c("PATHLOSS","RXLEV")
 kpiListBi2 <- c("RXQUAL")
