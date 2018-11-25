@@ -2,8 +2,8 @@
 library(readr)
 library(dplyr)
 
-dataDir <- "d:/data/mrr/2018Sep25/"
-#dataDir <- "~/data/gmrr/"
+#dataDir <- "d:/data/mrr/2018Sep25/"
+dataDir <- "~/data/gmrr/"
 
 allMrrFiles <- list.files(dataDir,pattern=".conf")
 allMrrFiles <- sub(".conf","",allMrrFiles)

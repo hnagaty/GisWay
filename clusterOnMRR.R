@@ -9,17 +9,33 @@ library(Hmisc)
 library(fastcluster)
 library(tibble)
 library(purrr)
+library(doParallel)
+library(dendextend)
+library(tictoc)
 
-myPath="d:/data/mrr/2018Sep25/"
+
+registerDoParallel(cores=2) #multi-core like functionality
+
+
+pasteDir <- function(c) {
+  if (nchar(c) == 2) {return (c)}
+  else if (c=="BSPOWER") {return("DL")}
+  else if (c=="MSPOWER") {return("UL")}
+  else {return("BL")}
+}
+
+dataDir<- "d:/data/mrr/2018Sep25/"
+dataDir <- "~/data/gmrr/"
 exportPath <- "D:/Optimisation/~InProgress/201806_GisFramework/export/"
+exportPath <- "~/Dropbox/Voda/GISWay/export/"
 
 mrrFiles=paste0(mrrConf.df$File,".msmt")
 gmrr <- data.frame()
 for (m in mrrFiles) {
-  gmrrtmp <- read_tsv(paste0(myPath,m))
+  gmrrtmp <- read_tsv(paste0(dataDir,m))
   gmrr <- bind_rows(gmrr,gmrrtmp)
 }
-rm(gmrrtmp,m,mrrFiles,myPath)
+rm(gmrrtmp,m,mrrFiles)
 
 #Remove the FER as it's alawys 0
 gmrr <- gmrr %>%
@@ -42,26 +58,44 @@ nCols <- ncol(gmrr)
 gmrrRatio <- gmrr %>%
   mutate_at(11:nCols,funs(. / NoReportsPassedFilter)) %>%
   select(-contains("TrafficLevelM"))
-#gmrrRatio <- add_column(gmrrRatio, cluster=0, .after = 2)
+gmrrRatio <- add_column(gmrrRatio, cluster=0, .after = 2)
 
 #rm(gmrr)
 
 neededCell='D71194'
 
-gmrrTidy <-  gmrrRatio %>%
-  filter(Cell==neededCell | Cell==paste0("C",neededCell)) %>%
+#filter(Cell==neededCell | Cell==paste0("C",neededCell)) %>%
+
+qtls <- 0.5
+qtlsnames <- "Median"
+qtls <- seq(0.15,0.9,0.15)
+qtlsnames <- paste0("Q",qtls*100)
+
+gmrr2 <-top_n(gmrr,100)
+
+tic("Tidy")
+gmrrFeatures <-  gmrr2 %>%
+  select(Cell,ChannelGroup,Band,`TrafficLevelCS(E)`,`RXQUALUL(0,0)`:`PATHLOSSDIFF(25,25)`) %>%
+  rename(Traffic=`TrafficLevelCS(E)`) %>%  
   gather("Measure","Value",`RXQUALUL(0,0)`:`PATHLOSSDIFF(25,25)`) %>%
-  select(BSC:Band,Measure,Value) %>%
   separate(Measure,into=c("Measure","Bin","c","d"),sep="[\\)\\(,]",convert=TRUE) %>%
   select(-c,-d) %>%
-  mutate(dir=substring(Measure,regexpr("UL|DL",Measure))) %>%
-  separate(Measure,into=c("kpi"),sep="UL|DL") %>%
+  group_by(Cell,ChannelGroup,Band,Measure) %>%
+  summarise(traffic=max(Traffic),val=paste0(Bin,collapse=","),cnt=paste0(Value,collapse=",")) %>%
   rowwise() %>%
-  mutate(dir = pasteDir(dir)) %>%
-  ungroup() %>%
-  select(BSC:kpi,dir,Bin,Value)
-  mutate(Bin=ifelse(kpi=="RXLEV",Bin-110,Bin))
+  mutate(q=paste0(wtd.quantile(as.numeric(strsplit(val,",",fixed=TRUE)[[1]]),
+                                weights=as.numeric(strsplit(cnt,",",fixed=TRUE)[[1]]),
+                                probs=qtls),
+         collapse=",")) %>%
+  select(-val,-cnt) %>%
+  #separate(q,sep=",",into=qtlsnames)
+  spread(key=Measure,value = q)
+toc()
 
+gmrrReshaled <- reshape(gmrrFeatures,idvar=c("Cell","ChannelGroup","Band","traffic"),timevar="Measure",direction = "wide")
+saveRDS(gmrrTidy,file=paste0(exportPath,"gMrrTidy.rds"))
+gmrrTidy <- readRDS(file=paste0(exportPath,"gMrrTidy.rds"))
+  
 
 # Calculate the percentile values
 # Needs to be verified. Compare it with output of TA line
@@ -86,35 +120,39 @@ dataScaled <- scale(data)
 #mrr.dist <- dist(dataScaled, method = 'euclidean') #not needed as I use hclust,vector
 #mrr.hclust.fit <- hclust(mrr.dist, method = 'complete') #causes memory overflow
 mrrHclust.fit <- hclust.vector(dataScaled,method="ward",metric="euclidean")
-saveRDS(mrrHclust.fit,file=paste0(exportPath,"HClustFit_Nov18.rds"))
-mrrHclust.fit <- readRDS(file=paste0(exportPath,"HClustFit_Nov18.rds"))
+saveRDS(mrrHclust.fit,file=paste0(exportPath,"HClustFit_Nov21.rds"))
+mrrHclust.fit <- readRDS(file=paste0(exportPath,"HClustFit_Nov21.rds"))
 
 # Dendogram plot
+k=2
 dendMrr <- as.dendrogram(mrrHclust.fit)
-dendColored <- color_branches(dendMrr, k = 2)
+dendColored <- color_branches(dendMrr, k = k)
 plot(dendColored,leaflab="none")
 
-mrr.clusters <- cutree(mrrHclust.fit, k = 3)
+mrr.clusters <- as.factor(cutree(mrrHclust.fit, k = k))
 table(mrr.clusters)
 gmrrRatio$cluster <- mrr.clusters
 table(gmrrRatio$cluster,gmrrRatio$Band) # ==> cluster 1 is mostly 1800, cluster is mostly 900
 
 # Then, plots for each class
 neededCell <- '55062'
-gmrrTidy <-  gmrrRatio %>% # should make group_by cluster first step, to speed it up
-  #filter(Cell==neededCell | Cell==paste0("C",neededCell)) %>%
+
+rm(gmrrTidy)
+tic("Tidy GMRR")
+gmrrTidy <-  gmrrRatio %>%
+  group_by(cluster) %>%
+  summarise_at(vars(`RXQUALUL(0,0)`:`PATHLOSSDIFF(25,25)`),mean) %>%
   gather("Measure","Value",`RXQUALUL(0,0)`:`PATHLOSSDIFF(25,25)`) %>%
-  select(BSC:Band,Measure,Value) %>%
   separate(Measure,into=c("Measure","Bin","c","d"),sep="[\\)\\(,]",convert=TRUE) %>%
   select(-c,-d) %>%
   mutate(dir=substring(Measure,regexpr("UL|DL",Measure))) %>%
-  separate(Measure,into=c("kpi"),sep="UL|DL") %>%
-  group_by(cluster,kpi,dir,Bin) %>%
-  dplyr::summarize(Value=mean(Value)) %>%
+  separate(Measure,into=c("kpi"),sep="UL|DL",extra="drop") %>%
   rowwise() %>%
   mutate(dir = pasteDir(dir)) %>%
   ungroup() %>%
   mutate(Bin=ifelse(kpi=="RXLEV",Bin-110,Bin))
+toc()
+
 
 #saveRDS(gmrrTidy,file=paste0(exportPath,"gMrrTidy.rds"))
 #gmrrTidy <- readRDS(file=paste0(exportPath,"gMrrTidy.rds"))
@@ -146,7 +184,7 @@ plotBiDirBar <- function(kpiV) {
 plotUniDirLine <- function(kpiV) {
   gmrrTidy %>% filter(kpi==kpiV) %>%
     ggplot(aes(x=Bin,y=Value,col=cluster)) +
-    geom_line(position = "dodge",size=1) +
+    geom_line(position = "identity",size=1) +
     scale_y_continuous(labels = scales::percent) +
     labs(title=kpiV,subtitle="Distribution",x="Value",y="Percentage",color="Direction")
 }
