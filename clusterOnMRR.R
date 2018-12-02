@@ -31,6 +31,7 @@ dataDir<- "d:/data/mrr/2018Sep25/"
 #dataDir <- "~/data/gmrr/"
 exportPath <- "D:/Optimisation/~InProgress/201806_GisFramework/export/"
 #exportPath <- "~/Dropbox/Voda/GISWay/export/"
+pngPath <- "D:/Optimisation/~InProgress/201806_GisFramework/gisWay/outputs/plots/"
 geoPath <- "D:/Optimisation/~InProgress/201806_GisFramework/export"
 
 #Plotting functions
@@ -128,14 +129,12 @@ gmrrRatio <- gmrr %>%
 #neededCell='D71194'
 #filter(Cell==neededCell | Cell==paste0("C",neededCell)) %>%
 
-qtls <- 0.5
-qtlsnames <- "Median"
 qtls <- seq(0.15,0.9,0.15)
 qtlsnames <- paste0("Q",qtls*100)
 
 #gmrr2 <-top_n(gmrr,100)
 
-tic("MRR Features")
+tic("GMRR Features")
 gmrrFeatures <-  gmrr %>%
   select(Cell,ChannelGroup,Band,`TrafficLevelCS(E)`,`RXQUALUL(0,0)`:`PATHLOSSDIFF(25,25)`) %>%
   rename(Traffic=`TrafficLevelCS(E)`) %>%  
@@ -164,10 +163,10 @@ saveRDS(gmrrFeatures,file=paste0(exportPath,"gmrrFeatures.rds"))
 # Clustering --------------------------------------------------------------
 gmrrFeatures <- readRDS(file=paste0(exportPath,"gmrrFeatures.rds"))
 
-data <- gmrrRatio %>%
-  select(`TrafficLevelCS(E)`:`PATHLOSSDIFF(25,25)`)
+#data <- gmrrRatio %>%
+#  select(`TrafficLevelCS(E)`:`PATHLOSSDIFF(25,25)`)
 
-removeFeatures <- vars(Band,traffic)
+#excludedFeatures <- vars(Band,traffic) # I couldn't use this, but I want to.
 data <- gmrrFeatures %>%
   filter(Band=="GSM900") %>%
   select(-Cell,-ChannelGroup,-Band,-traffic)
@@ -185,24 +184,24 @@ dataScaled <- scale(data)
 tic("hclust")
 mrrHclust.fit <- hclust.vector(dataScaled,method="ward",metric="euclidean")
 toc()
-mrrHclust.fit$notes <- "V4: Removed band & traffic. GSM900 Only"
-saveRDS(mrrHclust.fit,file=paste0(exportPath,"HClustFitReducedFeats_V4_Nov26.rds"))
+mrrHclust.fit$notes <- "V5: Removed band & traffic. GSM1800 Only"
+saveRDS(mrrHclust.fit,file=paste0(exportPath,"HClustFitReducedFeats_V_Dec02.rds"))
 
 mrrHclust.fit <- readRDS(file=paste0(exportPath,"HClustFitReducedFeats_V4_Nov26.rds"))
 
 # Dendogram plot
-k=2
-h=150
+k=8
+h=180
 dendMrr <- as.dendrogram(mrrHclust.fit)
-dendColored <- color_branches(dendMrr, h = h,groupLabels = TRUE)
+dendColored <- color_branches(dendMrr, h = h) #,groupLabels = TRUE) ==> seems to not match clusters in cuttree
 plot(dendColored,leaflab="none")
 
 # Cut the tree
-mrr.clusters <- as.factor(cutree(mrrHclust.fit, h = h))
+mrr.clusters <- as.factor(cutree(mrrHclust.fit, k = k))
 table(mrr.clusters)
 mrrClusters.df <- bind_cols(labels,data.frame(cluster=mrr.clusters))
 gmrrClustered <- inner_join(gmrr,mrrClusters.df,by=c("Cell", "ChannelGroup"))
-table(gmrrClustered$cluster,gmrrClustered$Band) # ==> cluster 1 is mostly 1800, cluster is mostly 900
+table(gmrrClustered$cluster,gmrrClustered$Band) #
 
 
 
@@ -234,7 +233,52 @@ map(kpiListUni2,plotUniDirBar,12)
 atollCells <- readOGR(geoPath,"atollCells")
 atollCells <- inner_join(atollCells,mrrClusters.df,by=c("CellName"="Cell"))
 tmap_mode("view")
-#myPal <- c("white","grey","grey","grey","green","grey","blue","red","grey")
-myPal <- brewer.pal(8,"Set1")
+myPal <- c("grey","grey","blue","grey","grey","grey","grey","grey")
+#myPal <- brewer.pal(8,"Set1")
 tm_shape(atollCells) +
   tm_polygons("cluster",palette=myPal) 
+
+gmrrTidy %>% filter(cluster==5) %>%
+  ggplot(aes(x=Bin,y=Value,fill=dir)) +
+  geom_col(position = "dodge",col="grey") +
+  facet_wrap(~kpi,ncol=3,scales="free_x", space="free_x") +
+  scale_y_continuous(labels = scales::percent)
+
+gmrrClustered %>% filter(Cell=="58874") %>% select(cluster)
+
+# Single cell plot
+
+plotCellMrr <- function(neededCell, save=FALSE) {
+  gmrrCell <-  gmrrRatio %>%
+    filter(Cell==neededCell) %>%
+    gather("Measure","Value",`RXQUALUL(0,0)`:`PATHLOSSDIFF(25,25)`) %>%
+    select(BSC:Band,Measure,Value) %>%
+    separate(Measure,into=c("Measure","Bin","c","d"),sep="[\\)\\(,]",convert=TRUE) %>%
+    select(-c,-d) %>%
+    mutate(dir=substring(Measure,regexpr("UL|DL",Measure))) %>%
+    separate(Measure,into=c("kpi"),sep="UL|DL") %>%
+    rowwise() %>%
+    mutate(dir = pasteDir(dir)) %>%
+    ungroup() %>%
+    select(BSC:kpi, dir, Bin, Value, -SubCellType, -Band, -BSC) %>%
+    mutate(Bin=ifelse(kpi=="RXLEV",Bin-110,Bin)) %>%
+    group_by(Cell, ChannelGroup, kpi, dir) %>%
+    mutate(cum1=cummax(Value)) %>%
+    arrange(desc(Bin)) %>%
+    mutate(cum2=cummax(Value)) %>%
+    arrange(Bin) %>% 
+    filter(cum1 != 0 & cum2 != 0)
+  p <- ggplot(gmrrCell, aes(x=Bin, y=Value,fill=dir)) +
+    geom_col(position = "dodge") +
+    facet_wrap(~kpi,ncol=3,scales="free") +
+    scale_y_continuous(name=NULL, labels = scales::percent) +
+    ggtitle(paste0("GSM MRR for cell ",neededCell),subtitle = mrrHclust.fit$notes)
+  if (save) {
+    ggsave(paste0("V4_Cell_",neededCell, ".png"), p, path=pngPath,width=30, height=15, units="cm")    
+  }
+  p
+}
+
+cells <- list("55062","55063","D31911")
+map(cells, plotCellMrr, save=TRUE)
+
