@@ -1,21 +1,16 @@
 # I should run the file "readGenericMRR.R" before this
 # the above script reads the names of complete MRR export files in a given folder
 
-library(readr)
-library(dplyr)
-library(tidyr)
-library(ggplot2)
+library(tidyverse)
 library(Hmisc)
 library(fastcluster)
-library(tibble)
-library(purrr)
-library(doParallel)
+#library(doParallel)
 library(dendextend)
 library(tictoc)
 library(dummies)
 
 
-registerDoParallel(cores=2) #multi-core like functionality
+#registerDoParallel(cores=2) #multi-core like functionality
 
 
 pasteDir <- function(c) {
@@ -112,8 +107,6 @@ gmrrRatio <- gmrr %>%
 #neededCell='D71194'
 #filter(Cell==neededCell | Cell==paste0("C",neededCell)) %>%
 
-qtls <- 0.5
-qtlsnames <- "Median"
 qtls <- seq(0.15,0.9,0.15)
 qtlsnames <- paste0("Q",qtls*100)
 
@@ -155,28 +148,27 @@ data <- select(gmrrFeatures,-Cell,-ChannelGroup,-Band)
 #data <- bind_cols(data,as.data.frame(bandDummy))
 labels <- select(gmrrFeatures,Cell,ChannelGroup)
 
-dataScaled <- scale(data)
-#mrr.dist <- dist(dataScaled, method = 'euclidean') #not needed as I use hclust,vector
-#mrr.hclust.fit <- hclust(mrr.dist, method = 'complete') #causes memory overflow
-tic("hclust")
-mrrHclust.fit <- hclust.vector(dataScaled,method="ward",metric="euclidean")
-toc()
+clustMRR <- function (df) {
+  scaled <- scale(df)
+  fit <- hclust.vector(scaled,method="ward",metric="euclidean")
+  # Dendogram plot
+  k=2
+  h=200
+  dend <- as.dendrogram(fit)
+  dendColored <- color_branches(dend, h = h)
+  plot(dendColored,leaflab="none")
+  clusters <- as.factor(cutree(fit, h = h))
+  list(model=fit,clusters=clusters)
+}
+
+  
+  mrrClusters.df <- bind_cols(labels,data.frame(cluster=mrr.clusters))
+  gmrrRatio <- inner_join(gmrrRatio,mrrClusters.df,by=c("Cell", "ChannelGroup"))
+  table(gmrrRatio$cluster,gmrrRatio$Band) # ==> cluster 1 is mostly 1800, cluster is mostly 900
+
+table(clusters)
 saveRDS(mrrHclust.fit,file=paste0(exportPath,"HClustFitReducedFeats_Nov25.rds"))
 mrrHclust.fit <- readRDS(file=paste0(exportPath,"HClustFitReducedFeats_Nov25.rds"))
-
-# Dendogram plot
-k=2
-h=200
-dendMrr <- as.dendrogram(mrrHclust.fit)
-dendColored <- color_branches(dendMrr, h = h)
-plot(dendColored,leaflab="none")
-
-mrr.clusters <- as.factor(cutree(mrrHclust.fit, h = h))
-table(mrr.clusters)
-mrrClusters.df <- bind_cols(labels,data.frame(cluster=mrr.clusters))
-gmrrRatio <- inner_join(gmrrRatio,mrrClusters.df,by=c("Cell", "ChannelGroup"))
-table(gmrrRatio$cluster,gmrrRatio$Band) # ==> cluster 1 is mostly 1800, cluster is mostly 900
-
 
 
 # For plotting
