@@ -14,25 +14,34 @@ library(spdplyr)
 library(tmap)
 library(RColorBrewer)
 library(viridisLite)
+library(rlist)
 
 # Parallel Processing -----------------------------------------------------
 registerDoParallel(cores=2) #multi-core like functionality
 
 
 # Functions & Indentifiers ------------------------------------------------
-pasteDir <- function(c) {
+pasteDir <- function(c) { # needed for GMRR parsing
   if (nchar(c) == 2) {return (c)}
   else if (c=="BSPOWER") {return("DL")}
   else if (c=="MSPOWER") {return("UL")}
   else {return("BL")}
 }
 
-dataDir<- "d:/data/mrr/2018Sep25/"
-#dataDir <- "~/data/gmrr/"
-exportPath <- "D:/Optimisation/~InProgress/201806_GisFramework/export/"
-#exportPath <- "~/Dropbox/Voda/GISWay/export/"
-pngPath <- "D:/Optimisation/~InProgress/201806_GisFramework/gisWay/outputs/plots/"
-geoPath <- "D:/Optimisation/~InProgress/201806_GisFramework/export"
+myDesktop <- "Linux"
+#myDesktop <- "Windows"
+
+if (myDesktop == "Linux") {
+  dataDir <- "~/data/gmrr/"
+  exportPath <- "~/Dropbox/Voda/GISWay/export/"
+  pngPath <- "~/Dropbox/Voda/GISWay/gisWay/outs/plots/"  
+} else {
+  dataDir<- "d:/data/mrr/2018Sep25/"
+  exportPath <- "D:/Optimisation/~InProgress/201806_GisFramework/export/"
+  pngPath <- "D:/Optimisation/~InProgress/201806_GisFramework/gisWay/outputs/plots/"
+  geoPath <- "D:/Optimisation/~InProgress/201806_GisFramework/export/"
+}
+
 
 #Plotting functions
 kpiListBi1 <- c("PATHLOSS","RXLEV")
@@ -112,28 +121,24 @@ gmrr <- gmrr %>%
   filter(NoReportsPassedFilter>1000) %>%
   select(-(NoFERULPassedFilter:NoFERULDLUnfiltered)) %>%
   filter(complete.cases(.))
-
-write_csv(gmrr,paste0(exportPath,"GsmMRR.csv"))
-
-# Reduce Features --------------------------------------------------------------
-gmrr <- read_csv(paste0(exportPath,"GsmMRR.csv"))
-nCols <- ncol(gmrr)
-
 gmrrRatio <- gmrr %>%
   mutate_at(11:nCols,funs(. / NoReportsPassedFilter)) %>%
   select(-contains("TrafficLevelM"))
-#gmrrRatio <- add_column(gmrrRatio, cluster=0, .after = 3)
 
-#rm(gmrr)
+write_csv(gmrr,paste0(exportPath,"GsmMRR.csv"))
+write_csv(gmrrRatio,paste0(exportPath,"GsmMrrRatio.csv"))
 
-#neededCell='D71194'
-#filter(Cell==neededCell | Cell==paste0("C",neededCell)) %>%
+# For Clustering II -----------------------------------------------------------
+# read data
+gmrr <- read_csv(paste0(exportPath,"GsmMRR.csv"))
+gmrrRatio <- read_csv(paste0(exportPath,"GsmMrrRatio.csv"))
+nCols <- ncol(gmrr)
 
+# define stops
 qtls <- seq(0.15,0.9,0.15)
 qtlsnames <- paste0("Q",qtls*100)
 
-#gmrr2 <-top_n(gmrr,100)
-
+# reduce features
 tic("GMRR Features")
 gmrrFeatures <-  gmrr %>%
   select(Cell,ChannelGroup,Band,`TrafficLevelCS(E)`,`RXQUALUL(0,0)`:`PATHLOSSDIFF(25,25)`) %>%
@@ -156,53 +161,51 @@ gmrrFeatures <-  gmrr %>%
   ungroup()
 toc()
 gmrrFeatures$Band <- as.factor(gmrrFeatures$Band)
-
 saveRDS(gmrrFeatures,file=paste0(exportPath,"gmrrFeatures.rds"))
 
-
-# Clustering --------------------------------------------------------------
 gmrrFeatures <- readRDS(file=paste0(exportPath,"gmrrFeatures.rds"))
 
-#data <- gmrrRatio %>%
-#  select(`TrafficLevelCS(E)`:`PATHLOSSDIFF(25,25)`)
-
+# data & labels
 #excludedFeatures <- vars(Band,traffic) # I couldn't use this, but I want to.
 data <- gmrrFeatures %>%
   filter(Band=="GSM900") %>%
   select(-Cell,-ChannelGroup,-Band,-traffic)
-#data <- select(gmrrFeatures,-!!!removeFeatures) # I want to work this out
-#bandDummy <- dummy(gmrrFeatures$Band) #one hot encoding
-#rownames(bandDummy) <- gmrrFeatures$Cell #Not actually needed
-#data <- bind_cols(data,as.data.frame(bandDummy))
 labels <- gmrrFeatures %>%
   filter(Band=="GSM900") %>%
   select(Cell,ChannelGroup)
 
-dataScaled <- scale(data)
-#mrr.dist <- dist(dataScaled, method = 'euclidean') #not needed as I use hclust,vector
-#mrr.hclust.fit <- hclust(mrr.dist, method = 'complete') #causes memory overflow
-tic("hclust")
-mrrHclust.fit <- hclust.vector(dataScaled,method="ward",metric="euclidean")
-toc()
-mrrHclust.fit$notes <- "V5: Removed band & traffic. GSM1800 Only"
-saveRDS(mrrHclust.fit,file=paste0(exportPath,"HClustFitReducedFeats_V_Dec02.rds"))
+cNotes <- "Some notes in here"
+cVersion <- "v31"
+cDate <- "2018-12-03"
+cList <- list(version=cVersion, date=cDate, notes=cNotes)
 
-mrrHclust.fit <- readRDS(file=paste0(exportPath,"HClustFitReducedFeats_V4_Nov26.rds"))
+# clustering
+hClustMrr <- function (data, infoList, save=TRUE, plotDendogram=TRUE) {
+  k=8
+  h=180
+  scaled <- scale(data)
+  fit <- hclust.vector(scaled,method="ward",metric="euclidean")
+  fit <- list.append(fit,info=infoList)
+  if (save) saveRDS(fit,file=paste0(exportPath,"HClustFit_",infoList$version,".rds"))
+  # Dendogram plot
+  if (plotDendogram) {
+    dendMrr <- as.dendrogram(fit)
+    dendColored <- color_branches(dendMrr, h = h) #,groupLabels = TRUE) ==> seems to not match clusters in cuttree
+    plot(dendColored,leaflab="none")
+  }
+  # Cut the tree
+  clusters <- as.factor(cutree(mrrHclust.fit, k = k))
+  return(list(model=fit,clusters=clusters))
+}
 
-# Dendogram plot
-k=8
-h=180
-dendMrr <- as.dendrogram(mrrHclust.fit)
-dendColored <- color_branches(dendMrr, h = h) #,groupLabels = TRUE) ==> seems to not match clusters in cuttree
-plot(dendColored,leaflab="none")
+cd1 <- hClustMrr(data,cList)
 
-# Cut the tree
-mrr.clusters <- as.factor(cutree(mrrHclust.fit, k = k))
-table(mrr.clusters)
 mrrClusters.df <- bind_cols(labels,data.frame(cluster=mrr.clusters))
 gmrrClustered <- inner_join(gmrr,mrrClusters.df,by=c("Cell", "ChannelGroup"))
 table(gmrrClustered$cluster,gmrrClustered$Band) #
 
+
+mrrHclust.fit <- readRDS(file=paste0(exportPath,"HClustFit_Nov21.rds"))
 
 
 # Plot the clusters -------------------------------------------------------
@@ -248,6 +251,9 @@ gmrrClustered %>% filter(Cell=="58874") %>% select(cluster)
 
 # Single cell plot
 
+# Plot Cell MRR Function
+  # plot mrr for a single cell
+  # the gmrrRatio df should be present
 plotCellMrr <- function(neededCell, save=FALSE) {
   gmrrCell <-  gmrrRatio %>%
     filter(Cell==neededCell) %>%
@@ -272,13 +278,13 @@ plotCellMrr <- function(neededCell, save=FALSE) {
     geom_col(position = "dodge") +
     facet_wrap(~kpi,ncol=3,scales="free") +
     scale_y_continuous(name=NULL, labels = scales::percent) +
-    ggtitle(paste0("GSM MRR for cell ",neededCell),subtitle = mrrHclust.fit$notes)
+    ggtitle(paste0("GSM MRR for cell ",neededCell),subtitle = "notes go in here")
   if (save) {
     ggsave(paste0("V4_Cell_",neededCell, ".png"), p, path=pngPath,width=30, height=15, units="cm")    
   }
   p
 }
 
-cells <- list("55062","55063","D31911")
+cells <- list("55061","55063","D31911")
 map(cells, plotCellMrr, save=TRUE)
 
