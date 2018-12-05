@@ -14,13 +14,13 @@ library(spdplyr)
 library(tmap)
 library(RColorBrewer)
 library(viridisLite)
-library(rlist)
 
-# Parallel Processing -----------------------------------------------------
+
+# Environment setup -------------------------------------------------------
 #registerDoParallel(cores=2) #multi-core like functionality
 
-#myDesktop <- "Linux"
-myDesktop <- "Windows"
+myDesktop <- "Linux"
+#myDesktop <- "Windows"
 
 if (myDesktop == "Linux") {
   dataDir <- "~/data/gmrr/"
@@ -82,7 +82,7 @@ kpiListBi2 <- c("RXQUAL")
 kpiListUni1 <- c("PATHLOSSDIFF")
 kpiListUni2 <- c("BSPOWER","MSPOWER","TAVAL")
 
-# Define generic plotting functions
+#Generic plotting functions
 plotBiDirLine <- function(df, kpiV="RXLEV", subtitle=NULL) {
     filter(df, kpi==kpiV) %>%
     ggplot(aes(x=Bin,y=Value,col=dir)) +
@@ -121,7 +121,7 @@ plotUniDirLineC <- function(df, kpiV="PATHLOSSDIFF",  subtitle=NULL) {
 plotUniDirBar <- function(df, kpiV="TAVAL",taLimit=20,  subtitle=NULL) {
     filter(df, kpi==kpiV) %>%
     filter(!(kpi=="TAVAL" & Bin >= taLimit )) %>%
-    mutate(Bin=as.factor(Bin)) %>%
+    #mutate(Bin=as.factor(Bin)) %>%
     ggplot(aes(x=Bin,y=Value)) +
     geom_col(fill="orange") +
     facet_wrap(~cluster,ncol=3) +
@@ -129,9 +129,25 @@ plotUniDirBar <- function(df, kpiV="TAVAL",taLimit=20,  subtitle=NULL) {
     labs(title=kpiV,subtitle=subtitle,x="Value",y="Percentage",fill="Direction")
 }
 
-# Plot the clusters -------------------------------------------------------
-# For plotting
-plotMrrClusters <- function(df, save=FALSE, filename=NULL, subtitle=NULL) {
+plotCluster <- function(df, cl, subtitle=NULL) {
+  filter(df, cluster==cl) %>%
+    ungroup() %>%
+    select(-cluster) %>%
+    group_by(kpi, dir) %>%
+    arrange(desc(Bin)) %>%
+    mutate(cum1=cummax(Value)) %>%
+    arrange(Bin) %>% 
+    mutate(cum2=cummax(Value)) %>%
+    filter(cum1 > 1e-03 & cum2 > 1e-03) %>%
+  ggplot(aes(x=Bin, y=Value,fill=dir)) +
+    geom_col(position = "dodge") +
+    facet_wrap(~kpi,ncol=3,scales="free") +
+    scale_y_continuous(name=NULL, labels = scales::percent) + 
+    labs(title=paste0("Cluster ",cl),subtitle=subtitle,x=NULL,y="Percentage",fill="Direction")
+}
+
+# Plot the clusters
+plotMrrClusters <- function(df, save=FALSE, filename=NULL, subtitle=NULL,byCluster=FALSE) {
   dfP <-  df %>%
     mutate_at(vars(`RXQUALUL(0,0)`:`PATHLOSSDIFF(25,25)`),funs(. / NoReportsPassedFilter)) %>%
     group_by(cluster) %>%
@@ -144,22 +160,37 @@ plotMrrClusters <- function(df, save=FALSE, filename=NULL, subtitle=NULL) {
     rowwise() %>%
     mutate(dir = pasteDir(dir)) %>%
     ungroup() %>%
-    mutate(Bin=ifelse(kpi=="RXLEV",Bin-110,Bin))
-  
-  p1 <- map2(rep(list(dfP),length(kpiListBi1)),  kpiListBi1, plotBiDirLine, subtitle=subtitle)
-  p2 <- map2(rep(list(dfP),length(kpiListBi2)),  kpiListBi2, plotBiDirBar, subtitle=subtitle)
-  p3 <- map2(rep(list(dfP),length(kpiListUni1)), kpiListUni1, plotUniDirLine, subtitle=subtitle)
-  p4 <- map2(rep(list(dfP),length(kpiListUni1)), kpiListUni1, plotUniDirLineC, subtitle=subtitle)
-  p5 <- map2(rep(list(dfP),length(kpiListUni2)), kpiListUni2, plotUniDirBar, subtitle=subtitle)
-  ps <- list(p1, p2, p3, p4, p5)
-  if (save) {
-      map(flatten(ps),~ggsave(filename=paste0(filename,.$labels$title,".png"),
-                              plot=., path=pngPath, width=30, height=15, units="cm"))
+    mutate(Bin=ifelse(kpi=="RXLEV",Bin-110,Bin)) %>%
+    group_by(cluster, kpi, dir) %>%
+    arrange(desc(Bin)) %>%
+    mutate(cum1=cummax(Value)) %>%
+    arrange(Bin) %>% 
+    mutate(cum2=cummax(Value)) %>%
+    filter(cum1 > 1e-05 & cum2 > 1e-05)
+  if (byCluster) { # each cluster in a separate page
+    noClusters <- n_distinct(df$cluster)
+    p <- map2((rep(list(dfP),noClusters)), as.list(1:noClusters), plotCluster, subtitle=subtitle)
+    if (save) {
+      imap(p,~ggsave(filename=paste0(filename,"Cluster",.y,".png"),
+                     plot=., path=pngPath, width=30, height=15, units="cm"))
+    }
+    p
+  } else { # each kpi in a separate page
+    p1 <- map2(rep(list(dfP),length(kpiListBi1)),  kpiListBi1, plotBiDirLine, subtitle=subtitle)
+    p2 <- map2(rep(list(dfP),length(kpiListBi2)),  kpiListBi2, plotBiDirBar, subtitle=subtitle)
+    p3 <- map2(rep(list(dfP),length(kpiListUni1)), kpiListUni1, plotUniDirLine, subtitle=subtitle)
+    p4 <- map2(rep(list(dfP),length(kpiListUni1)), kpiListUni1, plotUniDirLineC, subtitle=subtitle)
+    p5 <- map2(rep(list(dfP),length(kpiListUni2)), kpiListUni2, plotUniDirBar, subtitle=subtitle)
+    ps <- list(p1, p2, p3, p4, p5)
+    if (save) {
+        map(flatten(ps),~ggsave(filename=paste0(filename,"KPI_",.$labels$title,".png"),
+                                plot=., path=pngPath, width=30, height=15, units="cm"))
+    }
+    ps
   }
-  ps
 }
 
-# hClustMrr Function
+# hClustMrr function
 hClustMrr <- function (data, labels, infoList, k=2, save=TRUE, plotDendogram=TRUE) {
   scaled <- scale(data)
   fit <- hclust.vector(scaled,method="ward",metric="euclidean")
@@ -215,11 +246,10 @@ gmrrRatio <- gmrr %>%
   mutate_at(11:nCols,funs(. / NoReportsPassedFilter)) %>%
   select(-contains("TrafficLevelM"))
 
-# define stops
-qtls <- seq(0.15,0.9,0.15)
+# reduce features
+qtls <- seq(0.15,0.9,0.15) # the stops
 qtlsnames <- paste0("Q",qtls*100)
 
-# reduce features
 tic("GMRR Features")
 gmrrFeatures <-  gmrr %>%
   select(Cell,ChannelGroup,Band,`TrafficLevelCS(E)`,`RXQUALUL(0,0)`:`PATHLOSSDIFF(25,25)`) %>%
@@ -257,19 +287,19 @@ labels <- gmrrFeatures %>%
 
 # clustering
 # identifier & notes for the model
-cNotes <- "Trying the function. 900 band only, 8 clusters"
-cVersion <- "v32"
-cDate <- as.Date("2018-12-03")
+cNotes <- "Trying the function. 900 band only, 8 clusters as a test plot here & there and then backward in time"
+cVersion <- "v0.58h"
+cDate <- as.Date("2018-12-04")
 cList <- list(version=cVersion, date=cDate, notes=cNotes)
 tic("Clustering Fit")
-hClustFit <- hClustMrr(data,labels, cList, k=8)
+hClustFit <- hClustMrr(data, labels, cList, k=8)
 toc()
 gmrrClustered <- inner_join(gmrr,hClustFit$clusters,by=c("Cell", "ChannelGroup"))
 table(gmrrClustered$cluster,gmrrClustered$Band) #
 
-plotMrrClusters(gmrrClustered, save=TRUE,
+plotMrrClusters(gmrrClustered, save=TRUE, byCluster = TRUE,
                 filename=paste(cList$version,cList$date,"", sep="_"),
-                subtitle="V4 - 8 Clusters")
+                subtitle=paste(cList$version, cList$notes, sep="\n"))
 
 
 # Geographical Plots ------------------------------------------------------
@@ -295,3 +325,50 @@ gmrrClustered %>% filter(Cell=="58874") %>% select(cluster)
 cells <- list("55061","55063","D31911")
 map(cells, plotCellMrr, save=TRUE)
 
+#====================================================
+
+dfP <-  gmrrClustered %>%
+  mutate_at(vars(`RXQUALUL(0,0)`:`PATHLOSSDIFF(25,25)`),funs(. / NoReportsPassedFilter)) %>%
+  group_by(cluster) %>%
+  summarise_at(vars(`RXQUALUL(0,0)`:`PATHLOSSDIFF(25,25)`),mean) %>%
+  gather("Measure","Value",`RXQUALUL(0,0)`:`PATHLOSSDIFF(25,25)`) %>%
+  separate(Measure,into=c("Measure","Bin","c","d"),sep="[\\)\\(,]",convert=TRUE) %>%
+  select(-c,-d) %>%
+  mutate(dir=substring(Measure,regexpr("UL|DL",Measure))) %>%
+  separate(Measure,into=c("kpi"),sep="UL|DL",extra="drop") %>%
+  rowwise() %>%
+  mutate(dir = pasteDir(dir)) %>%
+  ungroup() %>%
+  mutate(Bin=ifelse(kpi=="RXLEV",Bin-110,Bin)) %>%
+  group_by(cluster, kpi, dir) %>%
+  arrange(desc(Bin)) %>%
+  mutate(cum1=cummax(Value)) %>%
+  arrange(Bin) %>% 
+  mutate(cum2=cummax(Value)) %>%
+  filter(cum1 > 1e-05 & cum2 > 1e-05)
+
+filename <- "Hany86"
+p <- map2((rep(list(dfP),noClusters)), as.list(1:noClusters), plotCluster)
+
+k <- NULL
+h <- 400
+model <- hClustFit$model
+labeled <- hClustFit$clusters
+clstr <- cutree(model, k = k, h = h)
+dend <- as.dendrogram(model)
+order <- order.dendrogram(dend)
+dendColored <- color_branches(dend, groupLabels = TRUE, clusters = clstr[order]) #==> seems to not match clusters in cuttree
+plot(dendColored,leaflab="none")
+# Cut the tree
+labeled$cluster <- as.factor(clstr)
+table(labeled$cluster)
+return(labeled)
+
+
+par(mfrow = c(1,3))
+d5=color_branches(dend,5)
+plot(d5)
+d5g=color_branches(dend,5,groupLabels=TRUE)
+plot(d5g)
+d5gr=color_branches(dend,5,groupLabels=as.roman)
+plot(d5gr)
