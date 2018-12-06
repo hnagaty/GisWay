@@ -14,13 +14,14 @@ library(spdplyr)
 library(tmap)
 library(RColorBrewer)
 library(viridisLite)
-
+library(hablar)
+library(readxl)
 
 # Environment setup -------------------------------------------------------
 #registerDoParallel(cores=2) #multi-core like functionality
 
-myDesktop <- "Linux"
-#myDesktop <- "Windows"
+#myDesktop <- "Linux"
+myDesktop <- "Windows"
 
 if (myDesktop == "Linux") {
   dataDir <- "~/data/gmrr/"
@@ -31,6 +32,7 @@ if (myDesktop == "Linux") {
   exportPath <- "D:/Optimisation/~InProgress/201806_GisFramework/export/"
   pngPath <- "D:/Optimisation/~InProgress/201806_GisFramework/gisWay/outputs/plots/"
   geoPath <- "D:/Optimisation/~InProgress/201806_GisFramework/export/"
+  ossDataDir <- "D:/Optimisation/~InProgress/201806_GisFramework/ossData/"
 }
 
 # Functions & Indentifiers ------------------------------------------------
@@ -40,6 +42,12 @@ pasteDir <- function(c) { # needed for GMRR parsing
   else if (c=="MSPOWER") {return("UL")}
   else {return("BL")}
 }
+
+setInitValue <- function(x,param) {
+  x[is.na(x)] <- pull(defaultParams[defaultParams[1]==param,2])
+  retype(x)
+}
+
 
 # Plot Cell MRR Function
 # plot mrr for a single cell
@@ -148,6 +156,7 @@ plotCluster <- function(df, cl, subtitle=NULL) {
 
 # Plot the clusters
 plotMrrClusters <- function(df, save=FALSE, filename=NULL, subtitle=NULL,byCluster=FALSE) {
+  cnts <- count(gmrrClustered,cluster)
   dfP <-  df %>%
     mutate_at(vars(`RXQUALUL(0,0)`:`PATHLOSSDIFF(25,25)`),funs(. / NoReportsPassedFilter)) %>%
     group_by(cluster) %>%
@@ -213,6 +222,18 @@ hClustMrr <- function (data, labels, infoList, k=2, save=TRUE, plotDendogram=TRU
   return(list(model=fit,clusters=clusters))
 }
 
+tryHClust <- function(model, labeled, h, k) {
+  clstr <- cutree(model, k = k, h = h)
+  print(table(clstr))
+  print("Plotting the dendrogram ...")
+  dend <- as.dendrogram(model)
+  order <- order.dendrogram(dend)
+  dendColored <- color_branches(dend, h = h, k = k) #groupLabels = TRUE,  clusters = clstr[order]) #But the labels are not printed
+  plot(dendColored,leaflab="none")
+  title(main=model$info$version, sub=paste(sep = "\n", model$info$notes, paste0("h=",h,", k=",k)))
+  labeled$cluster <- as.factor(clstr)
+  return(labeled)
+}
 
 # Read MRR files ----------------------------------------------------------
 # mrrconf.df should be pre-defined. It's defined in "readGenericMRR.R"
@@ -294,8 +315,16 @@ cList <- list(version=cVersion, date=cDate, notes=cNotes)
 tic("Clustering Fit")
 hClustFit <- hClustMrr(data, labels, cList, k=8)
 toc()
-gmrrClustered <- inner_join(gmrr,hClustFit$clusters,by=c("Cell", "ChannelGroup"))
-table(gmrrClustered$cluster,gmrrClustered$Band) #
+
+# Explore other cuts
+k <- 3
+h <- NULL
+newClusters <- tryHClust(model = hClustFit$model, labeled = hClustFit$clusters,
+                         h = h, k =k)
+rm(gmrrClustered)
+gmrrClustered <- inner_join(gmrr,newClusters,by=c("Cell", "ChannelGroup"))
+table(gmrrClustered$cluster,gmrrClustered$Band)
+
 
 plotMrrClusters(gmrrClustered, save=TRUE, byCluster = TRUE,
                 filename=paste(cList$version,cList$date,"", sep="_"),
@@ -325,6 +354,29 @@ gmrrClustered %>% filter(Cell=="58874") %>% select(cluster)
 cells <- list("55061","55063","D31911")
 map(cells, plotCellMrr, save=TRUE)
 
+
+
+# Read other supplementary data -------------------------------------------
+gsmKpi <- read_tsv(paste0(ossDataDir,"gsmKpi_122018.txt"),
+                   skip=1, na=c("","NA","#DIV/0"))
+
+pwrCntrlParams <- read_xlsx(paste0(ossDataDir,"cnadb/pwrControl_20181204.xlsx"),
+                             col_types = c("text", "text", "numeric","numeric", "numeric",
+                                           "numeric", "numeric", "numeric", "numeric",
+                                           "numeric", "numeric", "numeric", "numeric",
+                                           "numeric", "numeric", "numeric", "numeric",
+                                           "numeric", "numeric", "numeric", "numeric",
+                                           "numeric", "numeric", "text", "numeric"))
+
+defaultParams <- read_xlsx(paste0(ossDataDir, "cnadb/defaultParams.xlsx"))
+
+for (i in seq(3,ncol(pwrCntrlParams))) {
+  pwrCntrlParams[i] <- setInitValue(pwrCntrlParams[[i]],names(pwrCntrlParams)[i])
+}
+
+
+
+
 #====================================================
 
 dfP <-  gmrrClustered %>%
@@ -350,25 +402,11 @@ dfP <-  gmrrClustered %>%
 filename <- "Hany86"
 p <- map2((rep(list(dfP),noClusters)), as.list(1:noClusters), plotCluster)
 
-k <- NULL
-h <- 400
-model <- hClustFit$model
-labeled <- hClustFit$clusters
-clstr <- cutree(model, k = k, h = h)
-dend <- as.dendrogram(model)
-order <- order.dendrogram(dend)
-dendColored <- color_branches(dend, groupLabels = TRUE, clusters = clstr[order]) #==> seems to not match clusters in cuttree
-plot(dendColored,leaflab="none")
-# Cut the tree
-labeled$cluster <- as.factor(clstr)
-table(labeled$cluster)
-return(labeled)
 
 
-par(mfrow = c(1,3))
-d5=color_branches(dend,5)
-plot(d5)
-d5g=color_branches(dend,5,groupLabels=TRUE)
-plot(d5g)
-d5gr=color_branches(dend,5,groupLabels=as.roman)
-plot(d5gr)
+
+
+
+
+
+
