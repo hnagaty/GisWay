@@ -29,6 +29,7 @@ if (myDesktop == "Linux") {
   paths$localPath <- "D:/Optimisation/~InProgress/201806_GisFramework/geoData/Siradel_2016_Country/DLU/"
   paths$outDir <- "D:/Optimisation/~InProgress/201806_GisFramework/export/"
   paths$wmrrDir <- "D:/Optimisation/~InProgress/201806_GisFramework/ossData/wmrr_122018_dec03/"
+  paths$gmrrDir <- "D:/Optimisation/~InProgress/201806_GisFramework/ossData/mrr_092018_sep25/"
 }
 
 rm(myDesktop)
@@ -99,7 +100,7 @@ getMrrFiles <- function(dataDir) {
 
 
 # Read mrr files in a given folder. Reads the files mentioned in the df outputed from getMrrFiles()
-readWmrrFiles <- function(path, filesDf) {
+readMrrFiles <- function(path, filesDf) {
   mrrFiles <- paste0(filesDf$File,".msmt")
   df <- data.frame()
   for (m in mrrFiles) {

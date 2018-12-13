@@ -1,6 +1,8 @@
 # I should run the file "readGenericMRR.R" before this
 # the above named script reads the names of complete MRR export files in a given folder
 
+source("00_globalVars.R")
+
 # Load libraries ----------------------------------------------------------
 library(Hmisc) # for computation of the quantiles
 library(fastcluster) # for hierarichal clustering, faster tha baser hclust
@@ -22,6 +24,7 @@ library(readxl)
 # Load some data
 
 # Functions & Indentifiers ------------------------------------------------
+# set init value in parsing of CNA GSM parameters
 setInitValue <- function(x,param) {
   x[is.na(x)] <- pull(defaultParams[defaultParams[1]==param,2])
   retype(x)
@@ -55,9 +58,10 @@ plotCellMrr <- function(neededCell, save=FALSE) {
     geom_col(position = "dodge") +
     facet_wrap(~kpi,ncol=3,scales="free") +
     scale_y_continuous(name=NULL, labels = scales::percent) +
-    ggtitle(paste0("GSM MRR for cell ",neededCell),subtitle = "notes go in here")
+    ggtitle(paste0("GSM MRR for cell ",neededCell),subtitle = "After")
   if (save) {
-    ggsave(paste0("V4_Cell_",neededCell, ".png"), p, path=pngPath,width=30, height=15, units="cm")    
+    ggsave(paste0("CellMRR_",neededCell, "_02After.png"), p, path=paths$pngPath,width=30, height=15, units="cm")
+    message(paste0("Image saved in ",paths$pngPath))
   }
   p
 }
@@ -180,13 +184,8 @@ plotMrrClusters <- function(df, save=FALSE, filename=NULL, subtitle=NULL,byClust
 
 # Read MRR files ----------------------------------------------------------
 # mrrconf.df should be pre-defined. It's defined in "readGenericMRR.R"
-mrrFiles=paste0(mrrConf.df$File,".msmt")
-gmrr <- data.frame()
-for (m in mrrFiles) {
-  gmrrtmp <- read_tsv(paste0(dataDir,m))
-  gmrr <- bind_rows(gmrr,gmrrtmp)
-}
-rm(gmrrtmp,m,mrrFiles)
+gmrrDir <- "D:/Optimisation/~InProgress/201806_GisFramework/ossData/mrr_cluster7_after/"
+gmrr <- readMrrFiles(gmrrDir,getMrrFiles(gmrrDir))
 
 #Remove the FER as it's alawys 0
 gmrr <- gmrr %>%
@@ -202,8 +201,8 @@ gmrr <- gmrr %>%
   select(-(NoFERULPassedFilter:NoFERULDLUnfiltered)) %>%
   filter(complete.cases(.))
 
-write_csv(gmrr,paste0(exportPath,"GsmMRR.csv"))
-gmrr <- read_csv(paste0(exportPath,"GsmMRR.csv"))
+write_csv(gmrr,paste0(paths$exportPath,"GsmMRR.csv"))
+gmrr <- read_csv(paste0(paths$exportPath,"GsmMRR.csv"))
 
 nCols <- ncol(gmrr)
 gmrrRatio <- gmrr %>%
@@ -389,10 +388,15 @@ p <- map2((rep(list(dfP),noClusters)), as.list(1:noClusters), plotCluster)
 
 
 
-plotCellMrr("D74203")
+plotCellMrr("D80301", save = TRUE)
 
+mrrClusters <- read_csv(paste0(paths$exportPath, "HClustOutput_v4_clusters.csv"))
 
+clust7 <- filter(mrrClusters, cluster == 7) %>% distinct(Cell)
+clust7l <- clust7[[1]]
 
+clust7 <- read_csv("cluster7indelta.csv")
+clust7l <- clust7[[1]]
 
-
+map(clust7l, safely(plotCellMrr), save = TRUE)
 
