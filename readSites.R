@@ -8,113 +8,17 @@
 
 # Load Libraries ----------------------------------------------------------
 library(raster)
-library(readr)
-library(dplyr)
 library(sp)
-library(tidyr)
 library(rgeos)
 library(rgdal)
 library(spdplyr)
-library(ggplot2)
 library(maptools)
 library(RANN)
 library(tmap)
 library(ggmap)
 library(dendextend)
 
-# Define variables & functions --------------------------------------------
-# Variables
-#parentPath <- "~/Dropbox/Voda/GISWay/"
-parentPath <- "D:/Optimisation/~InProgress/201806_GisFramework/"
-mainPath <- paste0(parentPath,"gisWay/")
-globalPath <- paste0(parentPath,"sitesData/")
-exportPath <- paste0(parentPath,"export/")
-geoPath <- paste0(parentPath,"geoData")
-#localPath <- "~/data/geodata/Siradel_2016March/DLU/"
-localPath <- "D:/Optimisation/~InProgress/201806_GisFramework/geoData/Siradel_2016_Country/DLU/"
-atollFile <- "atollSites.csv"
-cellFile <- "oneCell.csv"
-
-egUtmCRS <- CRS("+init=epsg:32636")
-wgs84CRS <- CRS("+init=epsg:4326")
-
-# Function to deduce site properties from the cell name
-getPhySite <- function(cellname) {
-  if (substr(cellname,1,1)=="L") {
-    s=strsplit(cellname,"_",fixed=TRUE)
-    if (length(s[[1]])==3) {
-      pType=s[[1]][1]
-      if (pType=="L18") {
-        Type="LTE1800"
-      } else if (pType=="L21") {
-        Type="LTE2100"
-      } else if (pType=="L09") {
-        Type="LTE900"}
-      else {
-        Type="Invalid"
-      }
-      pSite=s[[1]][2]
-      if ((nchar(pSite)==5 | nchar(pSite)==6) & substr(pSite,1,1)=="L") {
-        PhySite <- substring(pSite,2)
-      } else {
-        PhySite="Invalid"
-      }
-    }
-    else {
-      PhySite <- "Invalid"
-      Type <- "Invalid"
-    }
-  } else {
-    chrLoc <- regexpr("[0-9]",cellname)[1]
-    chrPrefix <- substring(cellname,1,chrLoc-1)
-    numSuffix <- substring(cellname,chrLoc)
-    if (nchar(chrPrefix)>2 | nchar(numSuffix)!=5) {
-      PhySite="Invalid"
-      Type="Invalid"
-    } else {
-      prefix <- substr(chrPrefix,1,1)
-      suffix <- substr(numSuffix,1,4)
-      if (prefix=="C") {
-        PhySite <- paste0(substring(chrPrefix,2),suffix)
-        Type <- "DCS1800"
-      } else if (prefix=="G") {
-        PhySite <- paste0(substring(chrPrefix,2),suffix)
-        Type <- "UMTS2100"
-      } else if (prefix=="M") {
-        PhySite <- paste0(substring(chrPrefix,2),suffix)
-        Type <- "UMTS900"
-      } else {
-        if (nchar(chrPrefix)<2) {
-          PhySite <- paste0(chrPrefix,suffix)
-          Type <- "GSM900" 
-        } else {
-          PhySite <- "Invalid"
-          Type <- "Invalid"
-        }
-      }
-    }     
-  }
-  if (PhySite!="Invalid") {
-    a <- substr(cellname,nchar(cellname),nchar(cellname))
-    Sector <- as.character(cellMap[a,2])
-	if (Type=="UMTS2100" & !is.na(Sector)) {Carrier <- paste0("G",as.character(cellMap[a,3]))}
-	else if (Type=="UMTS900" & !is.na(Sector)) {Carrier <- paste0("M",as.character(cellMap[a,3]))}
-	else {Carrier <- "NA"}
-	} else {
-    Sector="Invalid"
-	  Carrier="Invalid"
-  }
-  return(paste(PhySite,Type,Sector,Carrier,sep=","))
-}
-
-
-
 # Read in the data --------------------------------------------------------
-# Cellmap file, maps cell suffix to sector & carrier. This is not the latest version
-cellMap <- read.delim(paste0(mainPath,"sectorMapping.txt"))
-cellMap$Carrier<-as.factor(cellMap$Carrier)
-rownames(cellMap)<-cellMap$Suffix
-
 atollDb <- read_csv(paste0(globalPath,atollFile),
                     trim_ws = TRUE, skip = 1,
                     col_types=cols(

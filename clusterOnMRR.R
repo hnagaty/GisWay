@@ -1,12 +1,11 @@
 # I should run the file "readGenericMRR.R" before this
-# the above script reads the names of complete MRR export files in a given folder
+# the above named script reads the names of complete MRR export files in a given folder
 
 # Load libraries ----------------------------------------------------------
-library(tidyverse)
-library(Hmisc)
-library(fastcluster)
-library(dendextend)
-library(tictoc)
+library(Hmisc) # for computation of the quantiles
+library(fastcluster) # for hierarichal clustering, faster tha baser hclust
+library(dendextend) # for plotting coloured dendrogram
+library(tictoc) # for measing time
 library(dummies)
 library(sp)
 library(rgdal)
@@ -14,35 +13,15 @@ library(spdplyr)
 library(tmap)
 library(RColorBrewer)
 library(viridisLite)
-library(hablar)
+library(hablar) # for I don't know what
 library(readxl)
 
 # Environment setup -------------------------------------------------------
 #registerDoParallel(cores=2) #multi-core like functionality
 
-#myDesktop <- "Linux"
-myDesktop <- "Windows"
-
-if (myDesktop == "Linux") {
-  dataDir <- "~/data/gmrr/"
-  exportPath <- "~/Dropbox/Voda/GISWay/export/"
-  pngPath <- "~/Dropbox/Voda/GISWay/gisWay/outs/plots/"  
-} else {
-  dataDir<- "d:/data/mrr/2018Sep25/"
-  exportPath <- "D:/Optimisation/~InProgress/201806_GisFramework/export/"
-  pngPath <- "D:/Optimisation/~InProgress/201806_GisFramework/gisWay/outputs/plots/"
-  geoPath <- "D:/Optimisation/~InProgress/201806_GisFramework/export/"
-  ossDataDir <- "D:/Optimisation/~InProgress/201806_GisFramework/ossData/"
-}
+# Load some data
 
 # Functions & Indentifiers ------------------------------------------------
-pasteDir <- function(c) { # needed for GMRR parsing
-  if (nchar(c) == 2) {return (c)}
-  else if (c=="BSPOWER") {return("DL")}
-  else if (c=="MSPOWER") {return("UL")}
-  else {return("BL")}
-}
-
 setInitValue <- function(x,param) {
   x[is.na(x)] <- pull(defaultParams[defaultParams[1]==param,2])
   retype(x)
@@ -199,42 +178,6 @@ plotMrrClusters <- function(df, save=FALSE, filename=NULL, subtitle=NULL,byClust
   }
 }
 
-# hClustMrr function
-hClustMrr <- function (data, labels, infoList, k=2, save=TRUE, plotDendogram=TRUE) {
-  scaled <- scale(data)
-  fit <- hclust.vector(scaled,method="ward",metric="euclidean")
-  fit$info <- cList
-  if (save) {
-    saveRDS(fit,file=paste0(exportPath,"HClustFit_",infoList$version,".rds"))
-    #cat("Model is saved in", paste0(exportPath,"HClustFit_",infoList$version,".rds"))
-    message(paste0("Model is saved in ", exportPath,"HClustFit_",infoList$version,".rds"))
-  }
-  # Dendogram plot
-  if (plotDendogram) {
-    print("Now plotting the dendogram ...")
-    dendMrr <- as.dendrogram(fit)
-    dendColored <- color_branches(dendMrr, k = k) #,groupLabels = TRUE) ==> seems to not match clusters in cuttree
-    plot(dendColored,leaflab="none")
-  }
-  # Cut the tree
-  clusters <- as.factor(cutree(fit, k = k))
-  clusters <-  bind_cols(labels,data.frame(cluster=clusters))
-  return(list(model=fit,clusters=clusters))
-}
-
-tryHClust <- function(model, labeled, h, k) {
-  clstr <- cutree(model, k = k, h = h)
-  print(table(clstr))
-  print("Plotting the dendrogram ...")
-  dend <- as.dendrogram(model)
-  order <- order.dendrogram(dend)
-  dendColored <- color_branches(dend, h = h, k = k) #groupLabels = TRUE,  clusters = clstr[order]) #But the labels are not printed
-  plot(dendColored,leaflab="none")
-  title(main=model$info$version, sub=paste(sep = "\n", model$info$notes, paste0("h=",h,", k=",k)))
-  labeled$cluster <- as.factor(clstr)
-  return(labeled)
-}
-
 # Read MRR files ----------------------------------------------------------
 # mrrconf.df should be pre-defined. It's defined in "readGenericMRR.R"
 mrrFiles=paste0(mrrConf.df$File,".msmt")
@@ -308,19 +251,22 @@ labels <- gmrrFeatures %>%
 
 # clustering
 # identifier & notes for the model
-cNotes <- "Trying the function. 900 band only, 8 clusters as a test plot here & there and then backward in time"
-cVersion <- "v0.58h"
-cDate <- as.Date("2018-12-04")
+cNotes <- "900 band only. 8 clusters. Aggregated quantiles (6 quantiles).This is the version where subsequent analysis is made"
+cVersion <- "v4"
+cDate <- as.Date("2018-12-09")
 cList <- list(version=cVersion, date=cDate, notes=cNotes)
 tic("Clustering Fit")
 hClustFit <- hClustMrr(data, labels, cList, k=8)
 toc()
 
 # Explore other cuts
-k <- 3
+k <- 8
 h <- NULL
 newClusters <- tryHClust(model = hClustFit$model, labeled = hClustFit$clusters,
                          h = h, k =k)
+# Now, merge the final clusters into the original dataframe
+# Note that there is potential mismatch in the saved files here,
+# as the txt/csv data is saved within hClustFit, and the images are saved based on clusters of tryHclust
 rm(gmrrClustered)
 gmrrClustered <- inner_join(gmrr,newClusters,by=c("Cell", "ChannelGroup"))
 table(gmrrClustered$cluster,gmrrClustered$Band)
@@ -357,8 +303,14 @@ map(cells, plotCellMrr, save=TRUE)
 
 
 # Read other supplementary data -------------------------------------------
+vfSites.df <- read_csv(paste0(exportPath,"vodaSites_201811b.txt"))
+
 gsmKpi <- read_tsv(paste0(ossDataDir,"gsmKpi_122018.txt"),
                    skip=1, na=c("","NA","#DIV/0"))
+
+gsmKpi2 <- gsmKpi %>%
+  mutate(IcmAll = IcmB1+IcmB2+IcmB3+IcmB4+IcmB5) %>%
+  mutate_at(vars(starts_with("IcmB")), funs(./IcmAll))
 
 pwrCntrlParams <- read_xlsx(paste0(ossDataDir,"cnadb/pwrControl_20181204.xlsx"),
                              col_types = c("text", "text", "numeric","numeric", "numeric",
@@ -374,8 +326,41 @@ for (i in seq(3,ncol(pwrCntrlParams))) {
   pwrCntrlParams[i] <- setInitValue(pwrCntrlParams[[i]],names(pwrCntrlParams)[i])
 }
 
+remedyIncs <- read_csv(paste0(miscDataDir,"remedyIncs_20181202.csv"),
+                       col_names = c("IncID", "AssetID", "Status", "FaultTime", 
+                                     "ResTime", "ResFault", "Desc"))
+sitesFaults <- count(remedyIncs,AssetID)
+hccClusters <- hClustFit$clusters %>%
+  rowwise %>%
+  mutate(siteData=getPhySite(Cell)) %>%
+  separate(siteData,into=c("Site","Type","Sector","Carrier"),sep=",")
+clustersIncs <- inner_join(hccClusters,sitesFaults, by = c("Site" = "AssetID"))
+ggplot(clustersIncs,aes(x=n)) +
+  geom_histogram(binwidth = 5) +
+  facet_wrap(~cluster, scale="free_y") +
+  scale_x_continuous(limits = c(0,100))
+
+clusterParam <- inner_join(pwrCntrlParams,hClustFit$clusters)
+ggplot(clusterParam,aes(x=ssdesdl)) +
+  geom_histogram(binwidth=1) +
+  facet_wrap(~cluster, scale="free_y") 
+  scale_x_continuous(breaks=seq(80,95,1))
+
+clusterKpi <- inner_join(gsmKpi2, hClustFit$clusters, by = c("CellName" = "Cell"))
+ggplot(clusterKpi,aes(x=cluster,y=IcmB1)) +
+  geom_boxplot()
 
 
+clusterSiteInfo <- vfSites.df %>%
+  select(Site,Region, SubRegion, SiteClass, meanDist, maxDist) %>%
+  right_join(hccClusters)
+
+ggplot(clusterSiteInfo, aes(x=cluster, y=meanDist)) + geom_boxplot()
+ggplot(clusterSiteInfo,aes(x=meanDist)) +
+  geom_histogram() + 
+  facet_wrap(~cluster, scales = "free_y")
+
+table(clusterSiteInfo$SiteClass, clusterSiteInfo$cluster)
 
 #====================================================
 
@@ -404,6 +389,7 @@ p <- map2((rep(list(dfP),noClusters)), as.list(1:noClusters), plotCluster)
 
 
 
+plotCellMrr("D74203")
 
 
 
