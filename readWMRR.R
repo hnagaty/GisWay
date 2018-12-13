@@ -1,59 +1,87 @@
-library(readr)
-library(dplyr)
-library(tidyr)
-library(ggplot2)
+# Reads MRR files
+# Summarizes them
+# Do some plots on idividual cells or groups
+
+
+# Load libraries ----------------------------------------------------------
+source("00_globalVars.R")
 library(Hmisc)
 
-wmrr <- read_tsv("../ossData/HanyWMRR.msmt",
-                 col_types = "cccciiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii")
-summary(wmrr)
-
-wmrr$Service <- as.factor(wmrr$Service)
-wmrr$Quantity <- as.factor(wmrr$Quantity)
-
-wmrr <- wmrr %>% select(-(Bin17:Bin37),-CellName)
-colnames(wmrr) <- c("CellUserLabel","Service","Quantity","Bin00","Bin01",         
-                    "Bin02","Bin03","Bin04","Bin05","Bin06",         
-                    "Bin07","Bin08","Bin09","Bin10","Bin11",        
-                    "Bin12","Bin13","Bin14","Bin15","Bin16")
 
 
-summary(wmrr)
-str(wmrr)
+# Read in the WCDMA MRR files -----------------------------------------------
+wmrr <- readWmrrFiles(paths$wmrrDir,getMrrFiles(paths$wmrrDir))
 
-wmrrGr <- wmrr %>%
-  select (-CellUserLabel) %>%
-  group_by(Service,Quantity) %>%
-  summarize_all(funs(mean(.,na.rm=TRUE)))
+qtls <- seq(0.15,0.9,0.15) # the stops
+qtlsnames <- paste0("Q",qtls*100)
 
-wmrrTidy <- wmrrGr %>%
-  gather(Bin,Value,3:19)
 
-wmrrCheck <- wmrrTidy %>%
-  select (-Bin) %>%
-  group_by(Service,Quantity) %>%
-  summarize_all(funs(sum(.,na.rm=TRUE)))
+#Combine all instances into one row
+wmrr <- wmrr %>%
+  group_by(CellName,CellUserLabel,Service,Quantity) %>%
+  summarise_all(sum) %>%
+  ungroup()
 
-wmrrTidy <- wmrrTidy %>%
-  filter(Service!="PS Conversational Speech EUL/HS")
+# remove DL power from wmrr, as it's missing in many cells
+# I may choose to add it later
+wmrr <- wmrr %>%
+  filter(!startsWith(Quantity,"DLT"))
 
-rm(wmrrCheck)
+# filter rows with all zeros
+wmrr <- wmrr %>% 
+  mutate(binsSum = rowSums(select(.,starts_with("Bin")), na.rm = TRUE)) %>%
+  filter (binsSum !=0)
 
-wmrrSmall <- wmrrTidy %>%
-  filter(Service=="Speech AMR NB 12.2")
-  select(-Service)
+wmrrTest <- wmrr %>%
+  separate(CellName, into = c("RNC", "C"), sep = "/") %>%
+  select(-C) %>%
+  rename(CellName = CellUserLabel) %>%
+  filter(CellName == "G43481") %>%
+  gather(BinC, Value, starts_with("Bin")) %>%
+  filter (!is.na(Value)) %>%
+  mutate(Bin = as.integer(sub("Bin","", BinC))) %>%
+  select(-BinC) %>%
+  arrange(Quantity,Bin)
 
-ggplot(wmrrSmall,aes(x=Bin,y=Value)) +
-  geom_col() +
-  facet_grid(.~Quantity)
+# this one for wmrr features
+wmrrFeatures <- wmrr %>% # I re-used some code from gsm mrr; the code for computing quantiles
+  select(-CellName) %>%
+  rename(CellName = CellUserLabel) %>%
+  #filter (CellName=="GD3153A") %>%
+  mutate_all(funs(replace(., is.na(.), 0))) %>%
+  unite(cnt, starts_with("Bin"), sep=",") %>%
+  mutate(val = paste0(seq (0,37, 1),collapse=",")) %>% # this step is not fool proof, if no. of bins is not 37
+  rowwise() %>%
+  mutate(q=paste0(wtd.quantile(as.numeric(strsplit(val,",",fixed=TRUE)[[1]]),
+                               weights=as.numeric(strsplit(cnt,",",fixed=TRUE)[[1]]),
+                               probs=qtls),
+                  collapse=",")) %>%
+  ungroup %>%
+  select(-val,-cnt) %>%
+  separate(q,sep=",",into=qtlsnames,convert=TRUE) %>%
+  gather(key=qtl,value=value,-(CellName:Quantity)) %>%
+  unite(ftr,Service, Quantity,qtl,sep="-") %>%
+  spread(key=ftr,value = value)
 
-wmrrPerCell <- wmrr %>%
-  gather(Bin,Value,4:20) %>%
-  filter(Service=="Speech AMR NB 12.2") %>%
-  select(-Service) %>%
-  rename(Cell=CellUserLabel) %>%
-  group_by(Cell,Quantity) %>%
-  summarise(avg=mean(Value,na.rm=TRUE),sd=sd(Value,na.rm=TRUE),
-            min=min(Value),max=max(Value),
-            Q90=quantile(Value,probs=0.9))
 
+# clustering
+# identifier & notes for the model
+data <- wmrrFeatures[,2:ncol(wmrrFeatures)]
+labels <- wmrrFeatures[1]
+cClass <- "WMRR"
+cNotes <- "1st trial on WMRR"
+cVersion <- "v0.01"
+cDate <- as.Date("2018-12-13")
+cList <- list(class=cClass, version=cVersion, date=cDate, notes=cNotes)
+tic("Clustering Fit")
+hClustFit <- hClustMrr(data, labels, cList, k=8)
+toc()
+
+# Explore other cuts
+k <- NULL
+h <- 400
+newClusters <- tryHClust(model = hClustFit$model, labeled = hClustFit$clusters,
+                         h = h, k =k)
+
+
+#===========================================================================================
