@@ -7,7 +7,7 @@ source("00_globalVars.R")
 library(Hmisc) # for computation of the quantiles
 library(fastcluster) # for hierarichal clustering, faster tha baser hclust
 library(dendextend) # for plotting coloured dendrogram
-library(tictoc) # for measing time
+library(tictoc) # for measuring time
 library(dummies)
 library(sp)
 library(rgdal)

@@ -1,6 +1,7 @@
 
 # Load libraries ----------------------------------------------------------
 library(tidyverse)
+library(sp)
 
 # Shared variables --------------------------------------------------------
 
@@ -185,11 +186,6 @@ hClustMrr <- function (data, labels, infoList, k=2, save=TRUE, plotDendogram=TRU
   scaled <- scale(data)
   fit <- hclust.vector(scaled,method="ward",metric="euclidean")
   fit$info <- cList
-  if (save) {
-    modelFilename <- paste0(paths$exportPath,infoList$class, "_HClustFit_",infoList$version,".rds")
-    saveRDS(fit,file=modelFilename)
-    message(paste0("Model is saved in ", modelFilename))
-  }
   # Dendogram plot
   if (plotDendogram) {
     print("Now plotting the dendogram ...")
@@ -206,12 +202,18 @@ hClustMrr <- function (data, labels, infoList, k=2, save=TRUE, plotDendogram=TRU
   clustersTable <-  bind_cols(labels,data.frame(cluster=clusters))
   if (save) {
     clstList <- list(info=infoList,clusters=clustersTable)
-    write_lines(clstList$info,path = paste0(paths$exportPath,"HClustOutput_",infoList$version,"_info.txt"), sep="\r\n")
-    write_lines(table(clusters),path = paste0(paths$exportPath,"HClustOutput_",infoList$version,"_info.txt"), sep=" ", append = TRUE)
-    write_csv(clstList$clusters, path = paste0(paths$exportPath,"HClustOutput_",infoList$version,"_clusters.csv"))
-    saveRDS(clstList, file = paste0(paths$exportPath,"HClustOutput_",infoList$version,".rds"))
+    write_lines(clstList$info,path = paste0(paths$exportPath, infoList$class, "_HClustOutput_",infoList$version,"_info.txt"), sep="\r\n")
+    write_lines(table(clusters),path = paste0(paths$exportPath, infoList$class, "_HClustOutput_",infoList$version,"_info.txt"), sep=" ", append = TRUE)
+    write_csv(clstList$clusters, path = paste0(paths$exportPath,infoList$class, "_HClustOutput_",infoList$version,"_clusters.csv"))
+    saveRDS(clstList, file = paste0(paths$exportPath, infoList$class, "_HClustOutput_",infoList$version,".rds"))
   }
-  return(list(model=fit,clusters=clustersTable))
+  returnList <- (list(model=fit,clusters=clustersTable))
+  if (save) {
+    modelFilename <- paste0(paths$exportPath,infoList$class, "_HClustFit_",infoList$version,".rds")
+    saveRDS(returnList,file=modelFilename)
+    message(paste0("Model is saved in ", modelFilename))
+  }
+  return(returnList)
 }
 
 tryHClust <- function(model, labeled, h, k) {
@@ -227,6 +229,10 @@ tryHClust <- function(model, labeled, h, k) {
   return(labeled)
 }
 
+#remove spaces and other characters from kpi names
+strpKpiName <- function(x) { 
+  tolower(gsub("[ /]","",x))  
+} 
 
 # Read shared data tables -------------------------------------------------
 
