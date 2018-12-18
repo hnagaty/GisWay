@@ -184,7 +184,7 @@ getPhySite <- function(cellname) {
 # hClustMrr function
 hClustMrr <- function (data, labels, infoList, k=2, save=TRUE, plotDendogram=TRUE) {
   scaled <- scale(data)
-  fit <- hclust.vector(scaled,method="ward",metric="euclidean")
+  fit <- hclust.vector(scaled, method = "centroid", metric = "euclidean")
   fit$info <- cList
   # Dendogram plot
   if (plotDendogram) {
@@ -239,8 +239,8 @@ strpKpiName <- function(x) {
 # The WMRR bin mapping
 binMap <- read_tsv("wmrrRanges.txt",
                    skip = 1,
-                   col_names = c("Bin", "Bler", "UeTxPwr", "CpichEcno", "CpichRscp","DlTxCodePowerSf"),
-                   col_types = "iccccc")
+                   col_names = c("Bin", "Bler", "Tx Power", "Ecno", "Rscp","DlTxCodePowerSf", "Timing Advance"),
+                   col_types = "icccccc")
 # Cellmap file, maps cell suffix to sector & carrier. This is not the latest version
 cellMap <- read.delim(paste0(paths$mainPath,"sectorMapping.txt"))
 cellMap$Carrier<-as.factor(cellMap$Carrier)
