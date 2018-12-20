@@ -11,6 +11,12 @@ library(Hmisc)
 library(fastcluster) # for hierarichal clustering, faster tha baser hclust
 library(dendextend) # for plotting coloured dendrogram
 library(tictoc) # for measuring time
+library(tmap)
+library(RColorBrewer)
+library(viridisLite)
+library(sp)
+library(rgdal)
+library(spdplyr)
 
 
 # Some Functions ----------------------------------------------------------
@@ -75,7 +81,7 @@ plotClusterWmrr <- function(cluster, service = "Speech AMR NB 12.2", pversion ="
     filter(!((cum1 == 0 | cum2 == 0) & crop)) %>%
     select(-cum1, -cum2)
   ptitle <- paste0("WCDMA MRR, Cluster: ",cluster)
-  psubtitle <- paste0("Version: ", pversion, " -> ", pdate, "\n", pnotes)
+  psubtitle <- paste0("Version: ", pversion, " -> ", pdate, "\n", pnotes, "\n", "# Cells: ", nrow(wmrrCluster))
   p <- ggplot(wmrrCluster, aes(x=Range, y=Value)) +
     geom_col(position = "dodge", fill="red4") +
     facet_wrap(~Quantity,ncol=3,scales="free") +
@@ -84,7 +90,7 @@ plotClusterWmrr <- function(cluster, service = "Speech AMR NB 12.2", pversion ="
     ggtitle(ptitle, psubtitle)
   print(p)
   if (save) {
-    pfilename <- paste0("WMRRCluster_", pversion, "_Cluster_", cluster,".png")
+    pfilename <- paste0("WMRR_", pversion, "_Cluster_", cluster,".png")
     ggsave(pfilename, p, path=paths$pngPath,width=30, height=15, units="cm")
     message(paste0("Image saved in ",paths$pngPath,pfilename))
   }
@@ -114,7 +120,7 @@ plotKpiWmrr <- function(kpi, service = "Speech AMR NB 12.2", pversion ="0", pdat
     ggtitle(ptitle, psubtitle)
   print(p)
   if (save) {
-    pfilename <- paste0("WMRR_KPI_", pversion, "_", kpiU,".png")
+    pfilename <- paste0("WMRR_", pversion, "_KPI_", kpiU,".png")
     ggsave(pfilename, p, path=paths$pngPath,width=30, height=15, units="cm")
     message(paste0("Image saved in ",paths$pngPath,pfilename))
   }
@@ -122,6 +128,16 @@ plotKpiWmrr <- function(kpi, service = "Speech AMR NB 12.2", pversion ="0", pdat
 
 
 # Readin & data munging -----------------------------------------------
+
+vfSites.df <- read_csv(paste0(paths$exportPath,"vodaSites_201811b.csv"))
+remedyIncs <- read_csv(paste0(paths$miscDataDir,"remedyIncs_20181202.csv"),
+                       col_names = c("IncID", "AssetID", "Status", "FaultTime", 
+                                     "ResTime", "ResFault", "Desc"))
+sitesFaults <- count(remedyIncs,AssetID) %>%
+  rename(noIncs=n)
+atollCells <- readOGR(substr(paths$exportPath, 1, nchar(paths$exportPath)-1), "atollCells",
+                      stringsAsFactors = FALSE)
+
 wmrr <- readMrrFiles(paths$wmrrDir,getMrrFiles(paths$wmrrDir))
 # it's normal to have so many warnings in the WMRR, because not all lines have the same length
 
@@ -136,7 +152,7 @@ wmrr <- wmrr %>%
 wmrr <- wmrr %>%
   filter(!startsWith(Quantity,"DLT"))
 
-# filter rows with all zeros
+# filter out rows with all zeros
 wmrr <- wmrr %>% 
   mutate(binsSum = rowSums(select(.,starts_with("Bin")), na.rm = TRUE)) %>%
   filter (binsSum !=0) %>%
@@ -144,7 +160,7 @@ wmrr <- wmrr %>%
   rename(CellName = CellUserLabel)
 
 # Summarize the wmrr into quantiles
-qtls <- seq(0.15,0.9,0.15) # the quantiles that are used to summarize the mrr data
+qtls <- seq(0.05,0.95,0.15) # the quantiles that are used to summarize the mrr data
 qtlsnames <- paste0("Q",qtls*100)
 
 # below df is needed for clustering (the features)
@@ -171,19 +187,20 @@ wmrrRatio <- wmrr %>%
   mutate_at(vars(matches("^Bin[0-9]")), funs(./binsSum)) %>%
   rename(noSamples = binsSum)
 
-# clustering
+# Clustering --------------------------------------------------------------
 # identifier & notes for the model
 data <- wmrrFeatures[,2:ncol(wmrrFeatures)]
 labels <- wmrrFeatures[1]
 cClass <- "WMRR"
-cNotes <- "4th trial on WMRR. Euclidean distance, centroid linkage"
-cVersion <- "v0.1d"
-cDate <- as.Date("2018-12-18")
+cNotes <- "tth trial on WMRR. Euclidean distance, ward linkage. Added 1 more quantile"
+cVersion <- "v0.f"
+cDate <- as.Date("2018-12-19")
 cList <- list(class=cClass, version=cVersion, date=cDate, notes=cNotes)
 tic("Clustering Fit")
 hClustFit <- hClustMrr(data, labels, cList, k=3, plotDendogram = TRUE)
 toc()
 hclusters <- hClustFit$clusters
+
 
 # Explore other cuts
 k <- 2
@@ -217,9 +234,9 @@ wmrrTidy <- wmrrTidy %>%
   left_join(binMapDf)
 
 # Save all data
-saveRDS(wmrrFeatures, paste0(paths$exportPath,"wmrrFeatures_20181217.rds"))
-saveRDS(wmrrRatio, paste0(paths$exportPath,"wmrrRatio_20181217.rds"))
-saveRDS(wmrrTidy, paste0(paths$exportPath,"wmrrTidy_20181217.rds"))
+saveRDS(wmrrFeatures, paste0(paths$exportPath,"wmrrFeatures_20181219.rds"))
+saveRDS(wmrrRatio, paste0(paths$exportPath,"wmrrRatio_20181219.rds"))
+saveRDS(wmrrTidy, paste0(paths$exportPath,"wmrrTidy_20181219.rds"))
 
 
 # Load data ---------------------------------------------------------------
@@ -228,6 +245,7 @@ cList <- hClustFit$model$info
 wmrrFeatures <- readRDS(paste0(paths$exportPath,"wmrrFeatures_20181217.rds"))
 wmrrRatio <- readRDS(paste0(paths$exportPath,"wmrrRatio_20181217.rds"))
 wmrrTidy <- readRDS(paste0(paths$exportPath,"wmrrTidy_20181217.rds"))
+hclusters <- hClustFit$clusters
 
 
 # Example plots
@@ -237,9 +255,29 @@ plotKpiWmrr("DL Cpich Ecno")
 plotClusterWmrr(8, crop = TRUE, save = TRUE,
                 pversion = cList$version, pdate = cList$date,pnotes = cList$notes)
 
-# Make plots of clusters
+
+# Plot the clusters -------------------------------------------------------
 kpiList <- distinct(wmrrTidy,Quantity)$Quantity
 walk(kpiList, plotKpiWmrr, pversion = cList$version, pdate = cList$date, pnotes = cList$notes)
 clusterList <- sort(distinct(wmrrTidy,Cluster)$Cluster)
 walk(clusterList, plotClusterWmrr, save=TRUE,
      pversion = cList$version, pdate = cList$date,pnotes = cList$notes)
+
+# combine all data sources
+hclustersB <- hclusters %>%
+  rowwise %>%
+  mutate(PhyCell = getPhyCell(CellName)) %>%
+  mutate(siteData=getPhySite(CellName)) %>%
+  separate(siteData,into=c("Site","Type","Sector","Carrier"),sep=",") %>%
+  ungroup() %>%
+  left_join(sitesFaults, by = c("Site" = "AssetID")) %>%
+  left_join(vfSites.df) %>%
+  select(-Clutter, -SheakhaAr, -SheakhaEn, -QismEn, -normSd)
+
+atollCellsBig <- inner_join(atollCells,hclustersB,by=c("CellName"="PhyCell")) # left join returns an error in tm_polygons()
+tmap_mode("view")
+#myPal <- c("grey","grey","blue","grey","grey","grey","grey","grey")
+myPal <- brewer.pal(8,"Set1")
+tm_shape(atollCellsBig) +
+  tm_polygons("cluster",palette=myPal, colorNA = "grey", border.alpha = 0) 
+

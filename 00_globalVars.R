@@ -90,7 +90,7 @@ getMrrFiles <- function(dataDir) {
                          Exists=mrrExists)
     mrrConf.df <- rbind.data.frame(mrrConf.df,mrr.df)
   }
- 
+  
   mrrConf.df$StartTime <- as.POSIXct(mrrConf.df$StartTime)
   mrrConf.df$EndTime <- as.POSIXct(mrrConf.df$EndTime)
   mrrConf.df <- mrrConf.df %>%
@@ -184,7 +184,7 @@ getPhySite <- function(cellname) {
 # hClustMrr function
 hClustMrr <- function (data, labels, infoList, k=2, save=TRUE, plotDendogram=TRUE) {
   scaled <- scale(data)
-  fit <- hclust.vector(scaled, method = "centroid", metric = "euclidean")
+  fit <- hclust.vector(scaled, method = "ward", metric = "euclidean")
   fit$info <- cList
   # Dendogram plot
   if (plotDendogram) {
@@ -216,16 +216,28 @@ hClustMrr <- function (data, labels, infoList, k=2, save=TRUE, plotDendogram=TRU
   return(returnList)
 }
 
-tryHClust <- function(model, labeled, h, k) {
+tryHClust <- function(model, labeled, h, k, save = TRUE, plotDendogram = TRUE) {
   clstr <- cutree(model, k = k, h = h)
   print(table(clstr))
-  print("Plotting the dendrogram ...")
-  dend <- as.dendrogram(model)
-  #order <- order.dendrogram(dend)
-  dendColored <- color_branches(dend, h = h, k = k) #groupLabels = TRUE,  clusters = clstr[order]) #But the labels are not printed
-  plot(dendColored,leaflab="none")
-  title(main=model$info$version, sub=paste(sep = "\n", model$info$notes, paste0("h=",h,", k=",k)))
+  if (plotDendogram) {
+    print("Plotting the dendrogram ...")
+    dend <- as.dendrogram(model)
+    #order <- order.dendrogram(dend)
+    dendColored <- color_branches(dend, h = h, k = k) #groupLabels = TRUE,  clusters = clstr[order]) #But the labels are not printed
+    plot(dendColored,leaflab="none")
+    title(main=model$info$version, sub=paste(sep = "\n", model$info$notes, paste0("h=",h,", k=",k)))
+    if (save) {
+      dev.print(png,
+                paste0(paths$exportPath,infoList$class, "_HClustDendrogram_",infoList$version,
+                       "k", k, "h", h, ".png"),
+                width=1600, height=900)
+    }
+    
+  }
   labeled$cluster <- as.factor(clstr)
+  if (save) {
+    write_csv(labeled, path = paste0(paths$exportPath,infoList$class, "_HClustOutput_",infoList$version, "k", k, "h", h, "_clusters.csv"))
+  }
   return(labeled)
 }
 

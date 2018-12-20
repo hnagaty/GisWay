@@ -302,7 +302,7 @@ map(cells, plotCellMrr, save=TRUE)
 
 
 # Read other supplementary data -------------------------------------------
-vfSites.df <- read_csv(paste0(exportPath,"vodaSites_201811b.txt"))
+vfSites.df <- read_csv(paste0(exportPath,"vodaSites_201811b.csv"))
 
 gsmKpi <- read_tsv(paste0(ossDataDir,"gsmKpi_122018.txt"),
                    skip=1, na=c("","NA","#DIV/0"))
