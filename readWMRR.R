@@ -26,6 +26,8 @@ getKpiName <- function(kpi, kpiList) {
   kpiList[which(map_lgl(kpiList, ~grepl(strpKpiName(.),strpKpiName(kpi))))] 
 }
 
+getKpiName("DLxBLER", colnames(binMap))
+
 # Get the bin range value. The kpi name must not be an exact of that in the binMap
 getBinRange <- function(bin, kpiname) {
   r = as.character(binMap[[getKpiName(kpiname,colnames(binMap))]][binMap$Bin==bin])
@@ -33,12 +35,16 @@ getBinRange <- function(bin, kpiname) {
   return (r)
 }
 
+getBinRange(1,"bler")
+
 # same as above, but kpiname must be exact name as in binMap
 getBinRange_ <- function(bin, kpishortname) {
   r = as.character(binMap[[kpishortname]][binMap$Bin==bin])
   if (length(r)==0) {return (NA)}
   return (r)
 }
+getBinRange_(1,"bler")
+getBinRange_(1,"Bler")
 
 # Plotting functions
 # All plotting functions work on wmrrTidy
@@ -69,6 +75,7 @@ plotCellWmrr <- function(cellname, service = "Speech AMR NB 12.2", crop = TRUE, 
 }
 
 plotClusterWmrr <- function(cluster, service = "Speech AMR NB 12.2", pversion ="0", pdate = NULL, pnotes = NULL, crop = TRUE, save = TRUE) {
+  noCells <- n_distinct(wmrrTidy$CellName[wmrrTidy$Cluster==cluster], na.rm = TRUE)
   wmrrCluster <- wmrrTidy %>%
     filter(Cluster == cluster, Service == service) %>%
     group_by(Service, Quantity, Cluster, BinN, Range, KpiShortName) %>%
@@ -81,7 +88,7 @@ plotClusterWmrr <- function(cluster, service = "Speech AMR NB 12.2", pversion ="
     filter(!((cum1 == 0 | cum2 == 0) & crop)) %>%
     select(-cum1, -cum2)
   ptitle <- paste0("WCDMA MRR, Cluster: ",cluster)
-  psubtitle <- paste0("Version: ", pversion, " -> ", pdate, "\n", pnotes, "\n", "# Cells: ", nrow(wmrrCluster))
+  psubtitle <- paste0("Version: ", pversion, " -> ", pdate, "\n", pnotes, "\n", "# Cells: ", noCells)
   p <- ggplot(wmrrCluster, aes(x=Range, y=Value)) +
     geom_col(position = "dodge", fill="red4") +
     facet_wrap(~Quantity,ncol=3,scales="free") +
@@ -137,7 +144,8 @@ sitesFaults <- count(remedyIncs,AssetID) %>%
   rename(noIncs=n)
 atollCells <- readOGR(substr(paths$exportPath, 1, nchar(paths$exportPath)-1), "atollCells",
                       stringsAsFactors = FALSE)
-
+umtsKpi <- read_tsv(paste0(paths$ossDataDir,"umtsKpi_20181219.txt"),
+                   skip=0, na=c("","NA","#DIV/0","#ERROR","#OVERFLOW","#MULTIVALUE"))
 wmrr <- readMrrFiles(paths$wmrrDir,getMrrFiles(paths$wmrrDir))
 # it's normal to have so many warnings in the WMRR, because not all lines have the same length
 
@@ -192,20 +200,21 @@ wmrrRatio <- wmrr %>%
 data <- wmrrFeatures[,2:ncol(wmrrFeatures)]
 labels <- wmrrFeatures[1]
 cClass <- "WMRR"
-cNotes <- "tth trial on WMRR. Euclidean distance, ward linkage. Added 1 more quantile"
-cVersion <- "v0.f"
-cDate <- as.Date("2018-12-19")
+cNotes <- "Euclidean distance & ward linkage. One more quantile"
+cVersion <- "v0.6i"
+cDate <- as.Date("2018-12-26")
 cList <- list(class=cClass, version=cVersion, date=cDate, notes=cNotes)
 tic("Clustering Fit")
-hClustFit <- hClustMrr(data, labels, cList, k=3, plotDendogram = TRUE)
+hClustFit <- hClustMrr(data, labels, cList, k=3, plotDendogram = FALSE)
 toc()
 hclusters <- hClustFit$clusters
 
 
 # Explore other cuts
-k <- 2
+k <- 6
 h <- NULL
 newClusters <- tryHClust(model = hClustFit$model, labeled = hClustFit$clusters,
+                         plotDendogram = FALSE,
                          h = h, k =k)
 hclusters <- newClusters
 

@@ -217,6 +217,7 @@ hClustMrr <- function (data, labels, infoList, k=2, save=TRUE, plotDendogram=TRU
 }
 
 tryHClust <- function(model, labeled, h, k, save = TRUE, plotDendogram = TRUE) {
+  infoList <- model$info
   clstr <- cutree(model, k = k, h = h)
   print(table(clstr))
   if (plotDendogram) {
@@ -236,7 +237,9 @@ tryHClust <- function(model, labeled, h, k, save = TRUE, plotDendogram = TRUE) {
   }
   labeled$cluster <- as.factor(clstr)
   if (save) {
-    write_csv(labeled, path = paste0(paths$exportPath,infoList$class, "_HClustOutput_",infoList$version, "k", k, "h", h, "_clusters.csv"))
+    dataFilename <- paste0(paths$exportPath,infoList$class, "_HClustOutput_",infoList$version, "_k", k, "h", h, "_clusters.csv")
+    write_csv(labeled, path = dataFilename)
+    message(paste0("Data is saved in ", dataFilename))
   }
   return(labeled)
 }
