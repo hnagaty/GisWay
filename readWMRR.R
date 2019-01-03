@@ -168,7 +168,7 @@ wmrr <- wmrr %>%
   rename(CellName = CellUserLabel)
 
 # Summarize the wmrr into quantiles
-qtls <- seq(0.05,0.95,0.15) # the quantiles that are used to summarize the mrr data
+qtls <- seq(0.15,0.90,0.15) # the quantiles that are used to summarize the mrr data
 qtlsnames <- paste0("Q",qtls*100)
 
 # below df is needed for clustering (the features)
@@ -200,12 +200,12 @@ wmrrRatio <- wmrr %>%
 data <- wmrrFeatures[,2:ncol(wmrrFeatures)]
 labels <- wmrrFeatures[1]
 cClass <- "WMRR"
-cNotes <- "Euclidean distance & ward linkage. One more quantile"
-cVersion <- "v0.6i"
-cDate <- as.Date("2018-12-26")
+cNotes <- "Euclidean distance & ward linkage (the basic model)"
+cVersion <- "v1.0a"
+cDate <- as.Date("2019-01-03")
 cList <- list(class=cClass, version=cVersion, date=cDate, notes=cNotes)
 tic("Clustering Fit")
-hClustFit <- hClustMrr(data, labels, cList, k=3, plotDendogram = FALSE)
+hClustFit <- hClustMrr(data, labels, cList, k=6, plotDendogram = TRUE)
 toc()
 hclusters <- hClustFit$clusters
 

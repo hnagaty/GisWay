@@ -185,7 +185,7 @@ getPhySite <- function(cellname) {
 hClustMrr <- function (data, labels, infoList, k=2, save=TRUE, plotDendogram=TRUE) {
   scaled <- scale(data)
   fit <- hclust.vector(scaled, method = "ward", metric = "euclidean")
-  fit$info <- cList
+  fit$info <- infoList
   # Dendogram plot
   if (plotDendogram) {
     print("Now plotting the dendogram ...")
